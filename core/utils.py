@@ -6,6 +6,7 @@ import os
 import sys
 import json
 import shutil
+import subprocess
 
 # Raiz do projeto (pasta fsatack)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -17,6 +18,23 @@ AMARELO = "\033[33m"
 VERMELHO = "\033[31m"
 CIANO = "\033[36m"
 RESET = "\033[0m"
+
+# Padroes UNICOS de configuracao (o config.json apenas sobrescreve)
+DEFAULTS = {
+    "threads": 20,
+    "timeout": 10,
+    "duracao_flood": 15,
+    "bruteforce_delay": 1,
+    "dry_run": False,
+    "vpn_alert": True,
+    "phishing_port": 8080,
+    "phishing_host": "127.0.0.1",
+    "wordlist_users": "wordlists/users.txt",
+    "wordlist_passwords": "wordlists/passwords.txt",
+    "wordlist_dirs": "wordlists/dirs.txt",
+    "wordlist_subs": "wordlists/subs.txt",
+    "logs_dir": "logs",
+}
 
 
 def c(txt, cor):
@@ -34,25 +52,53 @@ def sair(status=0):
 
 
 def carregar_config():
-    """Lê o config.json (retorna padrões caso esteja quebrado)."""
+    """Lê o config.json sobreposto aos DEFAULTS (faltando/chave quebrada usa padrao)."""
+    cfg = dict(DEFAULTS)
     try:
         with open(CONFIG_PATH, encoding="utf-8") as f:
-            return json.load(f)
+            dados = json.load(f)
+        if isinstance(dados, dict):
+            cfg.update(dados)
     except Exception:
-        return {
-            "threads": 20,
-            "timeout": 10,
-            "duracao_flood": 15,
-            "bruteforce_delay": 1,
-            "dry_run": False,
-            "vpn_alert": True,
-            "phishing_port": 8080,
-            "wordlist_users": "wordlists/users.txt",
-            "wordlist_passwords": "wordlists/passwords.txt",
-            "wordlist_dirs": "wordlists/dirs.txt",
-            "wordlist_subs": "wordlists/subs.txt",
-            "logs_dir": "logs",
-        }
+        pass
+    return cfg
+
+
+def parse_extras(extras):
+    """Separa os extras da CLI em posicionais e flags.
+
+    Aceita `--port 2222`, `--port=2222` e `--users wl.txt`.
+    Retorna (posicionais, {flag: valor}).
+    """
+    pos, flags = [], {}
+    lista = list(extras or [])
+    i = 0
+    while i < len(lista):
+        tok = str(lista[i])
+        if tok.startswith("--") and "=" in tok:
+            chave, valor = tok[2:].split("=", 1)
+            flags[chave] = valor
+        elif tok.startswith("--"):
+            chave = tok[2:]
+            if i + 1 < len(lista) and not str(lista[i + 1]).startswith("--"):
+                flags[chave] = str(lista[i + 1])
+                i += 1
+            else:
+                flags[chave] = "1"
+        else:
+            pos.append(tok)
+        i += 1
+    return pos, flags
+
+
+def mascarar(segredo, mantidos=0):
+    """Mascara um segredo para logs (nunca grava senha em texto puro)."""
+    txt = str(segredo)
+    if not txt:
+        return ""
+    if mantidos > 0:
+        return txt[:mantidos] + "*" * max(3, len(txt) - mantidos)
+    return "***"
 
 
 def caminho(rel):
@@ -86,20 +132,42 @@ def ferramenta_existe(nome):
     return shutil.which(nome) is not None
 
 
-def instalar_ferramenta(nome):
-    """Oferece instalação automática via pkg (Termux) ou apt (Linux)."""
+def _somente_root():
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def _comando_instalacao(nome):
+    """Lista-argumento do gerenciador de pacotes (nunca passa por shell)."""
     if eh_termux():
-        cmd = "pkg install -y {}".format(nome)
-    else:
-        cmd = "sudo apt-get install -y {}".format(nome)
+        return ["pkg", "install", "-y", nome]
+    sudo = [] if _somente_root() or not shutil.which("sudo") else ["sudo"]
+    if shutil.which("apt-get"):
+        return sudo + ["apt-get", "install", "-y", nome]
+    if shutil.which("pacman"):
+        return sudo + ["pacman", "-S", "--noconfirm", nome]
+    if shutil.which("apk"):
+        return sudo + ["apk", "add", nome]
+    return None
+
+
+def instalar_ferramenta(nome):
+    """Oferece instalação automática via pkg (Termux), apt, pacman ou apk."""
+    cmd = _comando_instalacao(nome)
+    if not cmd:
+        print(c("  Nenhum gerenciador de pacotes detectado.", VERMELHO))
+        return False
     try:
         resp = input(c("  Deseja instalar '{}' agora? (S/n): ".format(nome), AMARELO)).strip().lower()
     except EOFError:
         return False
     if resp not in ("s", "sim", "y", "yes", ""):
         return False
-    print(c("  Executando: {}".format(cmd), CIANO))
-    return os.system(cmd) == 0
+    print(c("  Executando: {}".format(" ".join(cmd)), CIANO))
+    try:
+        return subprocess.run(cmd).returncode == 0
+    except Exception as erro:
+        print(c("  Falha ao executar: {}".format(erro), VERMELHO))
+        return False
 
 
 def exigir_ferramenta(nome):
@@ -124,11 +192,11 @@ def instalar_dependencia(modulo, pacote=None):
         print(c("  Seguindo sem '{}' — recursos dependentes ficam indisponíveis.".format(pacote), AMARELO))
         return False
     print(c("  Instalando {}...".format(pacote), CIANO))
-    exe = '"{}"'.format(sys.executable)
+    exe = sys.executable
     # 1ª tentativa: apenas wheels (nunca compila código-fonte)
-    status = os.system("{} -m pip install --only-binary :all: {}".format(exe, pacote))
+    status = subprocess.run([exe, "-m", "pip", "install", "--only-binary", ":all:", pacote]).returncode
     if status != 0:
-        status = os.system("{} -m pip install --user {}".format(exe, pacote))
+        status = subprocess.run([exe, "-m", "pip", "install", "--user", pacote]).returncode
     if status == 0:
         try:
             __import__(modulo)

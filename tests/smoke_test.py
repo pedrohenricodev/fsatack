@@ -6,11 +6,16 @@ Criterio: so sai com codigo 0 quando 100% dos testes passam.
 Uso: python tests/smoke_test.py
 """
 
+import base64
 import os
 import py_compile
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MENU = os.path.join(ROOT, "core", "menu.py")
@@ -118,6 +123,111 @@ def achar_bash():
     return None
 
 
+# ------------------------------------------------------------
+# Servidor local de laboratorio (para os testes REAIS)
+# ------------------------------------------------------------
+SENHA_LAB = "fsatack123"
+AUTORIZACAO = "Basic " + base64.b64encode("admin:{}".format(SENHA_LAB).encode()).decode()
+
+
+class _ServidorLab(BaseHTTPRequestHandler):
+    """Responde 200 so com as credenciais do lab; conta as requisicoes."""
+
+    def do_GET(self):
+        with self.server.trava:
+            self.server.requisicoes += 1
+        if self.headers.get("Authorization") == AUTORIZACAO:
+            corpo = b"ok"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(corpo)))
+            self.end_headers()
+            self.wfile.write(corpo)
+        else:
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="lab"')
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+def subir_servidor_lab():
+    """Sobe o servidor em thread devolvendo (servidor, url_base)."""
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _ServidorLab)
+    srv.requisicoes = 0
+    srv.trava = threading.Lock()
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, "http://127.0.0.1:{}".format(srv.server_address[1])
+
+
+def contar_wordlist(rel):
+    caminho = os.path.join(ROOT, rel)
+    try:
+        with open(caminho, encoding="utf-8") as f:
+            return sum(1 for l in f if l.strip() and not l.strip().startswith("#"))
+    except Exception:
+        return 0
+
+
+def testes_reais(registrar_fn, rodar_fn):
+    """Caminho de execucao REAL contra servidor local (127.0.0.1 apenas)."""
+    srv, url = subir_servidor_lab()
+    pasta_tmp = tempfile.mkdtemp(prefix="fsatack_test_")
+    wl_users = os.path.join(pasta_tmp, "users.txt")
+    wl_pass = os.path.join(pasta_tmp, "pass.txt")
+    with open(wl_users, "w", encoding="utf-8") as f:
+        f.write("admin\nroot\n")
+    with open(wl_pass, "w", encoding="utf-8") as f:
+        f.write("errada1\n{}\nerrada2\n".format(SENHA_LAB))
+    try:
+        # (a) regressao: --port NAO pode sequestrar as wordlists
+        esperado = "{} combinacoes".format(
+            contar_wordlist("wordlists/users.txt") * contar_wordlist("wordlists/passwords.txt"))
+        rc, saida = rodar_fn([sys.executable, MENU, "bruteforce", "ssh", "127.0.0.1", "2222",
+                              "--dry-run"])
+        ok = rc == 0 and esperado in saida
+        registrar_fn("real:porta_nao_sequestra_wordlist", ok,
+                     "" if ok else "esperado '{}' na saida".format(esperado))
+
+        # (b) flood REAL (2s) contra o servidor local — caminho completo
+        rc, saida = rodar_fn([sys.executable, MENU, "network", "http_flood", url, "2", "2", "GET"],
+                             entrada="CONFIRMO\n", timeout=90)
+        n_req = srv.requisicoes
+        ok = rc == 0 and "Finalizado." in saida and n_req > 0
+        registrar_fn("real:http_flood_local", ok,
+                     "" if ok else "rc={} requisicoes={}".format(rc, n_req))
+
+        # (c) brute REAL de HTTP Basic com wordlists pequenas (2 tentativas)
+        rc, saida = rodar_fn([sys.executable, MENU, "bruteforce", "http_basic", url,
+                              "--users", wl_users, "--pass", wl_pass],
+                             entrada="CONFIRMO\n", timeout=90)
+        ok = rc == 0 and "SUCESSO" in saida
+        registrar_fn("real:bruteforce_http_basic", ok, "" if ok else "sem 'SUCESSO'")
+
+        # (d) a senha real NUNCA pode parar no log de execucoes
+        log = os.path.join(ROOT, "logs", "fsataque.jsonl")
+        conteudo = ""
+        if os.path.exists(log):
+            with open(log, encoding="utf-8") as f:
+                conteudo = f.read()
+        ok = SENHA_LAB not in conteudo
+        registrar_fn("real:senha_mascarada_no_log", ok,
+                     "" if ok else "senha em texto puro encontrada em logs/fsataque.jsonl")
+
+        # (e) port scan REAL via sockets (fallback sem nmap) em 127.0.0.1
+        rc, saida = rodar_fn([sys.executable, MENU, "recon", "port_scan", "127.0.0.1", "1-20"],
+                             timeout=90)
+        ok = rc == 0 and ("Portas abertas" in saida or "Nmap" in saida)
+        registrar_fn("real:port_scan_local", ok, "" if ok else "rc={}".format(rc))
+    finally:
+        try:
+            srv.shutdown()
+        except Exception:
+            pass
+        shutil.rmtree(pasta_tmp, ignore_errors=True)
+
+
 def main():
     print("=" * 62)
     print(" FS ATAQUE — smoke test (dry-run, nenhum ataque real)")
@@ -170,18 +280,24 @@ def main():
             rc, saida = rodar(cmd)  # stdin fechado: prompts usam default
             checar("modulo:{}.{}".format(cat, chave), rc, saida)
 
+    # 5b. testes REAIS (caminho de execucao) contra servidor local
+    print("-" * 62)
+    print(" testes REAIS (127.0.0.1, nenhum alvo externo)")
+    testes_reais(registrar, rodar)
+
     # 6. sintaxe dos scripts bash + menu do instalador (se bash existir)
     bash = achar_bash()
     if bash:
         for script in ("install.sh", "fsataque.sh"):
             rc, saida = rodar([bash, "-n", os.path.join(ROOT, script)])
             checar("bash:-n:{}".format(script), rc, saida)
-        # instalador: escolhe [4] Sair — nenhum install real
+        # instalador: escolhe [4] Sair — nenhum install real, nenhum comando criado
         rc, saida = rodar([bash, os.path.join(ROOT, "install.sh")], entrada="4\n", timeout=120)
-        if rc == 0 and "INSTALADOR" in saida:
+        if rc == 0 and "INSTALADOR" in saida and "Saindo sem instalar" in saida:
             registrar("instalador:menu_sair", True)
         else:
-            registrar("instalador:menu_sair", False, "rc={} ".format(rc) + saida[-300:].replace("\n", " "))
+            registrar("instalador:menu_sair", False,
+                      "rc={} ".format(rc) + saida[-300:].replace("\n", " "))
     else:
         registrar("bash:nao_encontrado(windows sem git-bash)", True, "pulado")
 

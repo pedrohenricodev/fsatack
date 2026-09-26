@@ -1,7 +1,10 @@
 __pycache__/
 *.pyc
 logs/*.jsonl
+logs/*.jpg
+logs/*.png
 logs/.aceite
 modules/phishing/AdvPhishing/
 modules/phishing/pages/
+wordlists/gerada_*.txt
 *.log

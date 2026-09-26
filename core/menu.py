@@ -44,8 +44,16 @@ BOMBARDEIO_MSG = (
 
 def _sistema_update(alvo, ctx):
     """Atualiza o projeto via git pull (com aviso)."""
+    if utils.is_dry(ctx):
+        utils.mostrar_dry("system_update", "git pull --ff-only em {}".format(ROOT))
+        return
     print(utils.c("  Atualizando repositorio (git pull)...", utils.CIANO))
-    status = os.system('git -C "{}" pull --ff-only'.format(ROOT))
+    import subprocess
+    try:
+        status = subprocess.run(["git", "-C", ROOT, "pull", "--ff-only"]).returncode
+    except Exception as erro:
+        print(utils.c("  git indisponivel: {}".format(erro), utils.VERMELHO))
+        status = 1
     res = "git pull ok" if status == 0 else "git pull falhou"
     utils.log("system_update", "-", res)
 
@@ -292,9 +300,6 @@ def interativo(dry):
         if esc == "d":
             dry = not dry
             continue
-        if esc == "8":
-            menu_categoria("system", dry)
-            continue
         if esc.isdigit() and 1 <= int(esc) <= len(ORDEM):
             menu_categoria(ORDEM[int(esc) - 1], dry)
         else:
@@ -307,17 +312,24 @@ def print_ajuda():
     print("""Uso:
   fsataque                          menu interativo
   fsataque help                     esta ajuda
-  fsataque <categoria> <modulo> <alvo> [extras...] [--dry-run]
+  fsataque <categoria> <modulo> <alvo> [posicionais...] [flags] [--dry-run]
 
 Categorias: recon, network, bruteforce, phishing, wireless, bluetooth, utils, system
 
+Flags (funcionam em qualquer modulo):
+  --port <n>        porta do alvo (bruteforce, phishing)
+  --users <arq>     wordlist de usuarios      --pass <arq>  wordlist de senhas
+  --host <ip>       interface do servidor de phishing (padrao 127.0.0.1)
+  --dry-run         mostra o que faria, sem executar
+
 Exemplos:
-  fsataque recon port_scan 192.168.0.10
+  fsataque recon port_scan 192.168.0.10 1-1024
   fsataque network http_flood http://lab.local --dry-run
-  fsataque bruteforce ssh 192.168.0.10
-  fsataque phishing clone_page http://192.168.0.5/login
-  fsataque system logs
-  fsataque system update""")
+  fsataque bruteforce ssh 192.168.0.10 --port 2222
+  fsataque bruteforce ssh 192.168.0.10 --users wordlists/users.txt --pass wordlists/passwords.txt
+  fsataque bruteforce http_form http://lab/login username password
+  fsataque phishing clone_page http://192.168.0.5/login --host 0.0.0.0
+  fsataque system logs""")
 
     print("\nModulos por categoria:")
     for cat in ORDEM:

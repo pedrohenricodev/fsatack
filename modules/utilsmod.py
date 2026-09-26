@@ -65,6 +65,9 @@ def msfvenom(alvo, ctx):
 
 def encoder(alvo, ctx):
     """Encoder/Decoder: base64, hex e URL."""
+    if utils.is_dry(ctx):
+        utils.mostrar_dry("encoder", "base64/hex/url de texto informado")
+        return
     print(utils.c("  [1] base64  [2] hex  [3] url", utils.VERDE))
     tipo = utils.perguntar("Tipo", "1")
     acao = utils.perguntar("acao: e=encode / d=decode", "e")
@@ -191,14 +194,16 @@ def exif(alvo, ctx):
                             print("  Encontrado: {}".format(tag.decode()))
                 pos += 2 + tamanho
         else:
-            print(utils.c("  Nao e JPEG — exiftool faria analise completa.", utils.AMARELO))
-            utils.instalar_ferramenta("exiftool")
+            print(utils.c("  Nao e JPEG — use o exiftool para analise completa.", utils.AMARELO))
     except Exception as e:
         print(utils.c("  Erro: {}".format(e), utils.VERMELHO))
 
 
 def qr_tools(alvo, ctx):
     """QR Code: gerador e leitor."""
+    if utils.is_dry(ctx):
+        utils.mostrar_dry("qr_tools", "gerar/ler QR Code")
+        return
     acao = utils.perguntar("acao: g=gerar / l=ler", "g")
     if acao == "l":
         arquivo = utils.perguntar("Imagem do QR", "modules/phishing/pages/qr.png")
@@ -213,9 +218,6 @@ def qr_tools(alvo, ctx):
         utils.log("qr_tools", arquivo, "leitura")
         return
     texto = alvo if alvo else utils.perguntar("Texto/URL para o QR")
-    if utils.is_dry(ctx):
-        utils.mostrar_dry("qr_tools", "gerar QR de '{}'".format(texto))
-        return
     try:
         import qrcode
     except ImportError:

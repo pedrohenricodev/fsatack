@@ -80,6 +80,14 @@ Dependências: `python3 (3.8+)`, `pip`, `git`, `curl`, `nmap`, `openssl`,
 `hydra` (opcional). Python: `requests` e `qrcode` (núcleo, sempre
 instaláveis) e `paramiko`/`cryptography` (SSH brute, opcionais).
 
+### 🚨 Problemas comuns na instalação
+
+| Sintoma | Causa / correção |
+|---|---|
+| `metadata-generation-failed` / `maturin` / `Failed to build 'cryptography'` | O pip tentou **compilar** `cryptography` (precisa de Rust). O instalador **não compila mais** isso: ele instala via `pkg install python-cryptography python-bcrypt python-pynacl` e, se falhar, avisa e segue (SSH brute passa a usar `hydra`). Rode `bash install.sh` de novo e escolha `[1]`. |
+| `fsataque: command not found` | O comando global não foi criado (instalação interrompida). Rode `bash install.sh` de novo **ou** use `bash fsataque.sh` — o instalador agora cria o comando **antes** de instalar qualquer coisa. |
+| `fsataque` só funciona depois de reabrir o terminal | `$PREFIX/bin` entrou no PATH agora; feche e abra o Termux. |
+
 ---
 
 ## 🎮 Uso
@@ -94,25 +102,41 @@ fsataque
 
 ```bash
 fsataque help
-fsataque recon port_scan 192.168.0.10
+fsataque recon port_scan 192.168.0.10 1-1024
 fsataque network http_flood http://lab.local --dry-run
-fsataque bruteforce ssh 192.168.0.10
-fsataque phishing clone_page http://192.168.0.5/login
+fsataque bruteforce ssh 192.168.0.10 --port 2222
+fsataque bruteforce ssh 192.168.0.10 --users wordlists/users.txt --pass wordlists/passwords.txt
+fsataque bruteforce http_form http://192.168.0.5/login username password
+fsataque phishing clone_page http://192.168.0.5/login --host 0.0.0.0
 fsataque wireless wifi_scan
 fsataque system logs
 fsataque system update
 ```
 
+### Flags
+
+| Flag | Efeito |
+|---|---|
+| `--dry-run` (ou `"dry_run": true`) | mostra o que faria, sem executar nada |
+| `--port <n>` / `--port=<n>` | porta do alvo (bruteforce, phishing) — **nunca confunde com wordlist** |
+| `--users <arq>` | wordlist de usuários |
+| `--pass <arq>` | wordlists de senhas |
+| `--host <ip>` | interface do servidor de phishing (padrão `127.0.0.1`) |
+| `--user-field` / `--pass-field` | nomes dos campos no brute de formulário |
+
 ### Dry-run (testar sem disparo real)
 
 - Flag: `--dry-run` em qualquer comando
 - Ou `"dry_run": true` no `config.json`
+- No menu interativo: tecla `[D]` alterna o modo
 
 ### Logs
 
 Toda execução grava `data`, `módulo`, `alvo` e `resultado` em
-`logs/fsataque.jsonl`. Capturas de phishing ficam em
-`logs/phishing_captures.jsonl`.
+`logs/fsataque.jsonl`. **Senhas nunca são gravadas em texto puro** — o
+sucesso do brute é registrado como `user:***`. Capturas de phishing ficam em
+`logs/phishing_captures.jsonl` (arquivo **sensível**, permissão `600`; é o
+artefato do teste de lab, trate como credencial real).
 
 ---
 
@@ -122,9 +146,18 @@ Toda execução grava `data`, `módulo`, `alvo` e `resultado` em
 python tests/smoke_test.py
 ```
 
-O teste roda **todos os módulos** da CLI em `--dry-run` (nenhum ataque real),
-verifica a compilação de todos os arquivos, o `help`, o menu interativo e as
-dependências Python. Só sai com código `0` quando **100% passam**.
+O teste roda **todos os módulos** da CLI em `--dry-run`, verifica a compilação
+de todos os arquivos, o `help`, o menu interativo, as dependências Python e a
+sintaxe dos scripts bash. Além disso executa **testes REAIS** contra um
+servidor local (`127.0.0.1`, nenhum alvo externo):
+
+- flood HTTP de 2s com contagem de requisições no servidor;
+- brute force HTTP Basic com wordlist temporária (caminho completo);
+- regressão: `--port` não pode sequestrar as wordlists;
+- regressão: senha real ausente de `logs/fsataque.jsonl`;
+- `port_scan` com sockets (fallback sem nmap).
+
+Só sai com código `0` quando **100% passam**.
 
 ---
 
@@ -158,6 +191,10 @@ em `modules/phishing/AdvPhishing/`. As telas são servidas por um **servidor Pyt
 puro** — sem PHP, sem Apache e sem `sudo`, funcionando igual no Termux e no Linux.
 Formulários são reescritos para o endpoint de captura e os POSTs são gravados em
 `logs/phishing_captures.jsonl`.
+
+O servidor escuta em **`127.0.0.1`** por padrão (só a sua máquina). Para uma
+vítima de lab em outra máquina: `--host 0.0.0.0` (ou use o módulo `tunnel`,
+que expõe via ngrok/cloudflared sem abrir a interface).
 
 ---
 

