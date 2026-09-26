@@ -1,0 +1,5 @@
+# Scripts bash e fontes precisam de LF: um \r no fim da linha quebra
+# o install.sh e o fsataque.sh em qualquer checkout.
+*.sh  text eol=lf
+*.py  text eol=lf
+*.json text eol=lf
