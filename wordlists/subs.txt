@@ -1,0 +1,22 @@
+# Wordlist de subdomínios (FS ATAQUE)
+www
+mail
+webmail
+smtp
+imap
+ftp
+vpn
+api
+dev
+test
+staging
+admin
+portal
+blog
+shop
+store
+cdn
+app
+remote
+git
+ci

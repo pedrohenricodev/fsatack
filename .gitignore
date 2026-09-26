@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+logs/*.jsonl
+logs/.aceite
+modules/phishing/AdvPhishing/
+modules/phishing/pages/
+*.log

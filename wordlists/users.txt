@@ -1,0 +1,15 @@
+# Wordlist mínima de usuários (FS ATAQUE)
+admin
+root
+test
+user
+guest
+ubuntu
+debian
+kali
+oracle
+ftp
+mysql
+postgres
+smtp
+pi

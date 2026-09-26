@@ -1,0 +1,14 @@
+{
+  "threads": 20,
+  "timeout": 10,
+  "duracao_flood": 15,
+  "bruteforce_delay": 1,
+  "dry_run": false,
+  "vpn_alert": true,
+  "phishing_port": 8080,
+  "wordlist_users": "wordlists/users.txt",
+  "wordlist_passwords": "wordlists/passwords.txt",
+  "wordlist_dirs": "wordlists/dirs.txt",
+  "wordlist_subs": "wordlists/subs.txt",
+  "logs_dir": "logs"
+}
