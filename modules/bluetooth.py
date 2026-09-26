@@ -59,5 +59,8 @@ def ble_scan(alvo, ctx):
         utils.log("ble_scan", "-", "bluetoothctl scan")
         return
     print(utils.c("  Nenhuma ferramenta BLE (hcitool/bluetoothctl).", utils.VERMELHO))
-    print("  Instale: pkg install root-repo && pkg install bluez / apt install bluez")
+    if utils.instalar_ferramenta("bluez"):
+        print("  Instalado — rode o modulo novamente.")
+    else:
+        print(utils.c("  BLE indisponivel sem bluez.", utils.AMARELO))
     utils.log("ble_scan", "-", "sem ferramentas")

@@ -110,6 +110,38 @@ def exigir_ferramenta(nome):
     return instalar_ferramenta(nome)
 
 
+def instalar_dependencia(modulo, pacote=None):
+    """Oferece instalação automática de pacote Python — o usuário apenas
+    seleciona [1] Instalar agora / [2] Continuar sem (nenhum comando manual).
+    Retorna True se o módulo passar a importar após a instalação."""
+    pacote = pacote or modulo
+    print(c("  Pacote Python '{}' não instalado (necessário para '{}').".format(pacote, modulo), VERMELHO))
+    try:
+        resp = input(c("  [1] Instalar agora  [2] Continuar sem: ", AMARELO)).strip()
+    except EOFError:
+        return False
+    if resp != "1":
+        print(c("  Seguindo sem '{}' — recursos dependentes ficam indisponíveis.".format(pacote), AMARELO))
+        return False
+    print(c("  Instalando {}...".format(pacote), CIANO))
+    exe = '"{}"'.format(sys.executable)
+    # 1ª tentativa: apenas wheels (nunca compila código-fonte)
+    status = os.system("{} -m pip install --only-binary :all: {}".format(exe, pacote))
+    if status != 0:
+        status = os.system("{} -m pip install --user {}".format(exe, pacote))
+    if status == 0:
+        try:
+            __import__(modulo)
+            print(c("  '{}' instalado com sucesso.".format(pacote), VERDE))
+            return True
+        except Exception as erro:
+            print(c("  Instalado, mas o import falhou: {}".format(erro), AMARELO))
+            return False
+    print(c("  Falha ao instalar '{}' (sem wheel para esta plataforma).".format(pacote), VERMELHO))
+    print(c("  Detalhes: rode 'pip install {}' ou use o instalador do projeto.".format(pacote), AMARELO))
+    return False
+
+
 def alerta_vpn():
     """Alerta padrão exibido ao lado dos comandos ofensivos."""
     print(c(" ⚠ Recomendado uso de VPN antes de executar este comando.", AMARELO))

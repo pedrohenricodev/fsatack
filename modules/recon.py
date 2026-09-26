@@ -182,8 +182,11 @@ def whois_dns(alvo, ctx):
     if utils.ferramenta_existe("whois"):
         saida = _run(["whois", alvo])
         print((saida or "")[:3000])
+    elif utils.instalar_ferramenta("whois"):
+        saida = _run(["whois", alvo])
+        print((saida or "")[:3000])
     else:
-        print(utils.c("  whois nao instalado (pkg install whois / apt install whois).", utils.AMARELO))
+        print(utils.c("  WHOIS indisponivel — consulta ignorada.", utils.AMARELO))
     utils.log("whois_dns", alvo, "ips: {}".format(ips))
 
 
@@ -225,7 +228,7 @@ def osint_email(alvo, ctx):
         utils.mostrar_dry("osint_email", "theHarvester -d {}".format(alvo))
         return
     if not utils.exigir_ferramenta("theHarvester") and not utils.exigir_ferramenta("theharvester"):
-        print(utils.c("  Instale com: pkg install theharvester / apt install theharvester", utils.AMARELO))
+        print(utils.c("  theHarvester indisponivel nesta plataforma — modulo ignorado.", utils.AMARELO))
         return
     binario = "theHarvester" if utils.ferramenta_existe("theHarvester") else "theharvester"
     dominio = alvo.split("@")[-1]

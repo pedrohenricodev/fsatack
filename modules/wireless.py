@@ -115,7 +115,8 @@ def wifi_scan(alvo, ctx):
     if redes is None:
         print(utils.c("  Scan indisponivel.", utils.VERMELHO))
         if utils.eh_termux():
-            print("  Instale: pkg install termux-api + app Termux:API (F-Droid).")
+            print(utils.c("  Scan requer o app Termux:API (instale da F-Droid).", utils.AMARELO))
+            utils.instalar_ferramenta("termux-api")
         else:
             print("  Instale NetworkManager (nmcli) ou rode com sudo para iw scan.")
         utils.log("wifi_scan", "-", "indisponivel")

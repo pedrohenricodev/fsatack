@@ -204,7 +204,7 @@ def tunnel(alvo, ctx):
         if utils.instalar_ferramenta("cloudflared"):
             print("  Rode novamente o modulo tunnel.")
     else:
-        print("  Instale manualmente: pkg install cloudflared / baixe ngrok.com")
+        print(utils.c("  Sem tunel — cloudflared/ngrok nao instalados.", utils.AMARELO))
 
 
 def qr(alvo, ctx):
@@ -218,8 +218,10 @@ def qr(alvo, ctx):
     try:
         import qrcode
     except ImportError:
-        print(utils.c("  qrcode nao instalado — pip install qrcode", utils.VERMELHO))
-        return
+        if not utils.instalar_dependencia("qrcode"):
+            print(utils.c("  QR cancelado — pacote 'qrcode' indisponivel.", utils.VERMELHO))
+            return
+        import qrcode
     qr_obj = qrcode.QRCode(border=1, box_size=1)
     qr_obj.add_data(url)
     qr_obj.make(fit=True)
@@ -258,5 +260,5 @@ def camera_sim(ctx_alvo, ctx):
             print(utils.c("  Foto salva em {}".format(destino), utils.VERDE))
         utils.log("camera_sim", "local", "termux-camera-photo status={}".format(status))
     else:
-        print(utils.c("  SIMULACAO: instale 'pkg install termux-api' e o app Termux:API.", utils.AMARELO))
+        print(utils.c("  SIMULACAO: requer o app Termux:API (F-Droid).", utils.AMARELO))
         utils.log("camera_sim", "local", "simulado (sem termux-api)")

@@ -37,6 +37,10 @@ dispositivos próprios, redes próprias e testes autorizados por escrito.
 
 ## 📦 Instalação
 
+O instalador é **interativo**: você só digita o **número da opção**.
+Nenhum comando extra é pedido — se um pacote falhar, o próprio script
+oferece as opções de correção (nunca compila código-fonte à toa).
+
 ### Termux (Android, sem root)
 
 ```bash
@@ -56,8 +60,25 @@ bash install.sh
 fsataque
 ```
 
-Dependências: `python3 (3.8+)`, `pip`, `git`, `curl`, `nmap`, `openssl`, `hydra` (opcional),
-`requests`, `paramiko`, `qrcode` (pip).
+### Opções do instalador
+
+| Opção | O que faz |
+|---|---|
+| `[1]` **Completa** (recomendado) | sistema + Python (`requests`, `qrcode`, `cryptography`, `paramiko`) + ferramentas extras opcionais |
+| `[2]` **Leve** | sistema + Python núcleo (`requests`, `qrcode`) — sem brute SSH |
+| `[3]` **Só sistema** | apenas pacotes do sistema (python, git, nmap, openssl…) |
+| `[4]` **Sair** | nada é instalado |
+
+Se algum pacote Python falhar (ex.: `cryptography` sem wheel pré-compilado),
+aparece um sub-menu: `[1]` instalar toolchain e tentar de novo, `[2]`
+continuar com os fallbacks automáticos, `[3]` sair. No Termux o instalador
+usa `pkg install python-cryptography python-bcrypt` **antes** do pip —
+sem tentar compilar Rust. Os detalhes de cada tentativa ficam em
+`logs/install_pip.log`.
+
+Dependências: `python3 (3.8+)`, `pip`, `git`, `curl`, `nmap`, `openssl`,
+`hydra` (opcional). Python: `requests` e `qrcode` (núcleo, sempre
+instaláveis) e `paramiko`/`cryptography` (SSH brute, opcionais).
 
 ---
 
@@ -92,6 +113,18 @@ fsataque system update
 Toda execução grava `data`, `módulo`, `alvo` e `resultado` em
 `logs/fsataque.jsonl`. Capturas de phishing ficam em
 `logs/phishing_captures.jsonl`.
+
+---
+
+## 🧪 Testes
+
+```bash
+python tests/smoke_test.py
+```
+
+O teste roda **todos os módulos** da CLI em `--dry-run` (nenhum ataque real),
+verifica a compilação de todos os arquivos, o `help`, o menu interativo e as
+dependências Python. Só sai com código `0` quando **100% passam**.
 
 ---
 
@@ -132,15 +165,17 @@ Formulários são reescritos para o endpoint de captura e os POSTs são gravados
 
 ```
 fsatack/
-├── install.sh        # instalador Termux/Linux
-├── fsataque.sh       # launcher
-├── requirements.txt
-├── config.json       # threads, timeout, wordlists, dry_run
-├── banner/ascii.txt  # banner em pontos
-├── core/             # menu, utils, logger
-├── modules/          # recon, network, bruteforce, phishing...
-├── wordlists/        # wordlists mínimas próprias
-└── logs/             # JSONL de execuções
+├── install.sh            # instalador INTERATIVO Termux/Linux (menu de opções)
+├── fsataque.sh           # launcher
+├── requirements.txt      # núcleo: requests, qrcode
+├── requirements-full.txt # + paramiko (SSH brute)
+├── config.json           # threads, timeout, wordlists, dry_run
+├── banner/ascii.txt      # banner em pontos
+├── core/                 # menu, utils, logger
+├── modules/              # recon, network, bruteforce, phishing...
+├── tests/smoke_test.py   # teste de todos os módulos (dry-run)
+├── wordlists/            # wordlists mínimas próprias
+└── logs/                 # JSONL de execuções
 ```
 
 ---

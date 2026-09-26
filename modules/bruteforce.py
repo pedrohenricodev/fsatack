@@ -158,13 +158,16 @@ def http_basic(alvo, ctx):
 
 def http_form(alvo, ctx):
     """HTTP Form Login Brute Force (POST)."""
-    if requests is None:
-        print(utils.c("  Modulo 'requests' ausente — pip install -r requirements.txt", utils.VERMELHO))
-        return
     if utils.is_dry(ctx):
         users, pwds = _listas(ctx)
         utils.mostrar_dry("http_form", "{} combinacoes contra {}".format(len(users) * len(pwds), alvo))
         return
+    if requests is None:
+        if utils.instalar_dependencia("requests"):
+            globals()["requests"] = __import__("requests")
+        else:
+            print(utils.c("  Modulo 'requests' indisponivel — http_form cancelado.", utils.VERMELHO))
+            return
     if len(ctx["extras"]) >= 3:
         campo_u, campo_p = ctx["extras"][0], ctx["extras"][1]
     else:

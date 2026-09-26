@@ -40,8 +40,11 @@ def http_flood(alvo, ctx):
         utils.mostrar_dry("http_flood", "{} {} x {}s com {} threads".format(metodo, alvo, duracao, threads))
         return
     if requests is None:
-        print(utils.c("  Modulo 'requests' ausente — rode: pip install -r requirements.txt", utils.VERMELHO))
-        return
+        if utils.instalar_dependencia("requests"):
+            globals()["requests"] = __import__("requests")
+        else:
+            print(utils.c("  Modulo 'requests' indisponivel — http_flood cancelado.", utils.VERMELHO))
+            return
     fim = time.time() + duracao
     cont = {"ok": 0, "err": 0}
     trava = threading.Lock()

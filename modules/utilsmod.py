@@ -45,7 +45,7 @@ def msfvenom(alvo, ctx):
         utils.mostrar_dry("msfvenom", "gerar payload msfvenom")
         return
     if not utils.exigir_ferramenta("msfvenom"):
-        print("  Instale o metasploit-framework para usar este modulo.")
+        print(utils.c("  msfvenom indisponivel — modulo ignorado.", utils.AMARELO))
         return
     payload = utils.perguntar("Payload", "windows/meterpreter/reverse_tcp")
     lhost = utils.perguntar("LHOST", "127.0.0.1")
@@ -191,7 +191,8 @@ def exif(alvo, ctx):
                             print("  Encontrado: {}".format(tag.decode()))
                 pos += 2 + tamanho
         else:
-            print("  Nao e JPEG — instale o exiftool para analise completa.")
+            print(utils.c("  Nao e JPEG — exiftool faria analise completa.", utils.AMARELO))
+            utils.instalar_ferramenta("exiftool")
     except Exception as e:
         print(utils.c("  Erro: {}".format(e), utils.VERMELHO))
 
@@ -204,8 +205,11 @@ def qr_tools(alvo, ctx):
         if utils.ferramenta_existe("zbarimg"):
             out = subprocess.run(["zbarimg", "-q", arquivo], capture_output=True, text=True)
             print(out.stdout or "(nenhum QR detectado)")
+        elif utils.instalar_ferramenta("zbar" if utils.eh_termux() else "zbar-utils"):
+            out = subprocess.run(["zbarimg", "-q", arquivo], capture_output=True, text=True)
+            print(out.stdout or "(nenhum QR detectado)")
         else:
-            print(utils.c("  Leitor requer: pkg install zbar / apt install zbar-utils", utils.AMARELO))
+            print(utils.c("  Leitor de QR indisponivel (zbar).", utils.AMARELO))
         utils.log("qr_tools", arquivo, "leitura")
         return
     texto = alvo if alvo else utils.perguntar("Texto/URL para o QR")
@@ -214,10 +218,13 @@ def qr_tools(alvo, ctx):
         return
     try:
         import qrcode
-        qr_obj = qrcode.QRCode(border=1, box_size=1)
-        qr_obj.add_data(texto)
-        qr_obj.make(fit=True)
-        qr_obj.print_ascii(invert=True)
-        utils.log("qr_tools", texto, "QR gerado")
     except ImportError:
-        print(utils.c("  Instale: pip install qrcode", utils.VERMELHO))
+        if not utils.instalar_dependencia("qrcode"):
+            print(utils.c("  QR cancelado — pacote 'qrcode' indisponivel.", utils.VERMELHO))
+            return
+        import qrcode
+    qr_obj = qrcode.QRCode(border=1, box_size=1)
+    qr_obj.add_data(texto)
+    qr_obj.make(fit=True)
+    qr_obj.print_ascii(invert=True)
+    utils.log("qr_tools", texto, "QR gerado")
