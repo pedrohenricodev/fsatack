@@ -3,23 +3,37 @@
 # FS ATAQUE — menu interativo e subcomandos CLI (Termux / Linux)
 
 # Adicione bluetooth_spam e bomb na lista de imports
-from modules import recon, network, bruteforce, phishing, wireless, bluetooth, utilsmod, bluetooth_spam, bomb
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
 import sys
 
-# Garante UTF-8 no console (Windows) sem quebrar o banner
+# 1. CONFIGURAÇÃO DE UTF-8
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 2. CONFIGURAÇÃO DE CAMINHO (PATH) - ISSO TEM QUE VIR PRIMEIRO!
+# Precisamos definir o ROOT antes de tentar importar qualquer coisa do projeto
+ROOT = os.path.dirname(os.path.abspath(__file__)) # Se o menu.py estiver na raiz
+# Se o menu.py estiver dentro de uma pasta, use: os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+# 3. IMPORTS DO CORE (Sempre depois do sys.path)
 from core import utils, logger, ajuda
-from modules import recon, network, bruteforce, phishing, wireless, bluetooth, utilsmod
+
+# 4. IMPORTS DOS MÓDULOS (Agora o Python saberá onde procurar)
+from modules import (
+    recon, network, bruteforce, phishing, 
+    wireless, bluetooth, utilsmod, bluetooth_spam, bomb
+)
+
+# ... restante do seu código (AVISO, CATEGORIAS, etc)
 
 AVISO = """\
 ================================================================
