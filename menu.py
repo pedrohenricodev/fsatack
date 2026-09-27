@@ -9,17 +9,16 @@
 import os
 import sys
 
-# 1. CONFIGURAÇÃO DE UTF-8
-try:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-except Exception:
-    pass
+# 1. Define a raiz do projeto como o diretório onde este arquivo está
+ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# 2. CONFIGURAÇÃO DE CAMINHO (PATH) - ISSO TEM QUE VIR PRIMEIRO!
-# Precisamos definir o ROOT antes de tentar importar qualquer coisa do projeto
-ROOT = os.path.dirname(os.path.abspath(__file__)) # Se o menu.py estiver na raiz
-# Se o menu.py estiver dentro de uma pasta, use: os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 2. Adiciona a raiz ao sys.path para o Python encontrar 'core' e 'modules'
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+# 3. Agora sim, os imports
+from core import utils, logger, ajuda
+from modules import recon, network, bruteforce, phishing, wireless, bluetooth, utilsmod, bluetooth_spam, bomb
 
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
