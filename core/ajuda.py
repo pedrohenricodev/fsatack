@@ -255,16 +255,6 @@ DETALHES = {
 
 # Modulos deliberadamente fora do escopo, para a ajuda responder "por que nao existe?".
 FORA_DE_ESCOPO = {
-    "bombardeio": (
-        "SMS/Call/Email Bomb, OTP Flood e WhatsApp Spam nao estao nesta CLI. "
-        "Eles miram telefones e contas de pessoas que nao consentiram, e nao existe "
-        "alvo de laboratorio que os torne legitimos."
-    ),
-    "ble_attack": (
-        "BLE spam/flood/fuzz nao estao nesta CLI. Eles desconectam fones, teclados e "
-        "relogios de quem estiver por perto — pessoas que nunca pediram "
-        "para participar. O modulo disponivel e 'ble_scan', que so observa."
-    ),
     "amplificacao": (
         "Amplificacao DNS/NTP/SSDP nao estao nesta CLI. Ela abusa de servidores de "
         "terceiros para multiplicar o trafego contra um alvo que nao autorizou nada."
@@ -281,10 +271,6 @@ ALIASES_ESCOPO = {
     "escopo": "todos",
     "scope": "todos",
     "todos": "todos",
-    "bomb": "bombardeio",
-    "sms": "bombardeio",
-    "spam": "bombardeio",
-    "ble": "ble_attack",
     "amplificacao": "amplificacao",
     "dns": "amplificacao",
     "ntp": "amplificacao",
@@ -297,10 +283,8 @@ ALIASES_ESCOPO = {
 
 # Temas fora do escopo que o usuario provavelmente procurar na categoria.
 ESCOPO_POR_CATEGORIA = {
-    "bluetooth": ("ble_attack",),
     "wireless": ("wifi_injection",),
     "network": ("amplificacao",),
-    "phishing": ("bombardeio",),
 }
 
 

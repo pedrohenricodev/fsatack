@@ -34,12 +34,6 @@ Dieckmann, art. 154-A do Codigo Penal). Voce assume toda a
 responsabilidade pelo uso desta ferramenta.
 ================================================================"""
 
-BOMBARDEIO_MSG = (
-    "Categoria REMOVIDA por decisao de escopo:\n"
-    "  SMS/Call/Email Bomb, OTP Flood e WhatsApp Spam atingem\n"
-    "  terceiros fora de qualquer laboratorio controlado.\n"
-    "  Detalhes: 'fsataque help unethical'"
-)
 
 def _sistema_update(alvo, ctx):
     """Atualiza o projeto via git pull (com aviso)."""
@@ -437,7 +431,6 @@ def interativo(dry):
         print(utils.c("\n  Categorias:", utils.VERDE))
         for i, chave in enumerate(ORDEM, 1):
             print("   [{}] {}".format(i, CATEGORIAS[chave]["nome"]))
-        print("   [B] " + utils.c("Bombardeio (removido)", utils.VERMELHO))
         print("   [H] " + utils.c("Ajuda: o que cada modulo faz", utils.CIANO))
         print("   [D] Alternar dry-run (agora: {})".format("ON" if dry else "OFF"))
         print("   [0] Sair")
@@ -445,10 +438,6 @@ def interativo(dry):
         if esc in ("0", "q", "sair", ""):
             print(utils.c("  Ate logo!", utils.VERDE))
             return
-        if esc == "b":
-            print(utils.c("\n  " + BOMBARDEIO_MSG, utils.AMARELO))
-            input(utils.c("\n  Enter para voltar...", utils.CIANO))
-            continue
         if esc in ("h", "help", "?"):
             _menu_ajuda()
             continue
@@ -566,7 +555,7 @@ def main():
         return
     if args[0] in ("-h", "--help", "help"):
         # help unethical [tema] | help <categoria> [modulo]
-        # A categoria tem precedencia: 'ble' e alias de bluetooth, nao de ble_attack.
+        # A categoria tem precedencia sobre o topico fora de escopo.
         if len(args) > 1 and not (args[1] in CATEGORIAS or ALIASES.get(args[1]) in CATEGORIAS):
             ok, _t = ajuda.fora_de_escopo(args[1])
             if ok:
