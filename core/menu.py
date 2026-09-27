@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 # FS ATAQUE — menu interativo e subcomandos CLI (Termux / Linux)
 
+# Adicione bluetooth_spam e bomb na lista de imports
+from modules import recon, network, bruteforce, phishing, wireless, bluetooth, utilsmod, bluetooth_spam, bomb
 import os
 import sys
 
@@ -131,10 +133,18 @@ CATEGORIAS = {
             "wps_check": dict(nome="Deteccao de WPS habilitado", fn=wireless.wps_check, alvo=False, destrutivo=False, vpn=False),
         },
     },
-    "bluetooth": {
-        "nome": "Bluetooth / BLE (somente leitura)",
+        "bluetooth": {
+        "nome": "Bluetooth / BLE (Scanner e Spam)",
         "mods": {
             "ble_scan": dict(nome="BLE Scanner (dispositivos proximos)", fn=bluetooth.ble_scan, alvo=False, destrutivo=False, vpn=False),
+            "ble_spam": dict(nome="BLE Spam (Flood de anúncios)", fn=bluetooth_spam.ble_spam, alvo=True, destrutivo=True, vpn=False),
+        },
+    },
+        "bomb": {
+        "nome": "Bombing (SMS/Call)",
+        "mods": {
+            "sms_bomb": dict(nome="SMS Bomb (OTP Flood)", fn=bomb.sms_bomb, alvo=True, destrutivo=True, vpn=True),
+            "call_bomb": dict(nome="Call Bomb (VoIP)", fn=bomb.call_bomb, alvo=True, destrutivo=True, vpn=True),
         },
     },
     "utils": {
@@ -160,7 +170,8 @@ CATEGORIAS = {
 }
 
 # Ordem do menu principal
-ORDEM = ["recon", "network", "bruteforce", "phishing", "wireless", "bluetooth", "utils", "system"]
+# Adicione "bomb" na lista para aparecer no menu principal
+ORDEM = ["recon", "network", "bruteforce", "phishing", "wireless", "bluetooth", "bomb", "utils", "system"]
 
 ALIASES = {
     "rede": "network", "net": "network", "flood": "network",
@@ -171,6 +182,12 @@ ALIASES = {
     "sistema": "system", "sys": "system",
     "recon": "recon", "scanning": "recon", "scan": "recon",
     "phishing": "phishing",
+    
+    # Novos Aliases para os ataques que você adicionou
+    "bomb": "bomb", 
+    "sms": "bomb", 
+    "call": "bomb",
+    "spam": "bluetooth", # Atalho para o menu de bluetooth/ble
 }
 
 
