@@ -98,6 +98,28 @@ instaláveis) e `paramiko`/`cryptography` (SSH brute, opcionais).
 fsataque
 ```
 
+No menu, `[?]` na categoria mostra a ajuda dela e `[H]` na tela principal abre
+a ajuda completa. Antes de executar, o CLI pergunta se você quer ver a ajuda do
+módulo e só roda se você digitar o nome dele.
+
+### Ajuda
+
+Cada um dos 51 módulos tem resumo, flags, ressalvas conhecidas e exemplo.
+
+```bash
+fsataque help                            # visão geral das categorias
+fsataque help bruteforce                 # a categoria inteira, com o resumo de cada módulo
+fsataque help bruteforce http_form       # detalhe: flags, ressalvas, exemplo
+fsataque help unethical                  # o que ficou fora do escopo, e por quê
+fsataque help ble_attack                 # detalhe de um tema fora do escopo
+fsataque bruteforce ssh --help           # ajuda só daquele módulo
+```
+
+As ressalvas não são decorativas: `help bruteforce http_form` avisa que o
+critério de sucesso é o tamanho do corpo e que redirects não são detectados,
+porque `allow_redirects=True` faz o status nunca aparecer como 3xx. `help
+bruteforce admin_panel` avisa que qualquer HTTP 200 conta como acerto.
+
 ### Subcomandos
 
 ```bash
@@ -108,6 +130,8 @@ fsataque bruteforce ssh 192.168.0.10 --port 2222
 fsataque bruteforce ssh 192.168.0.10 --users wordlists/users.txt --pass wordlists/passwords.txt
 fsataque bruteforce http_form http://192.168.0.5/login username password
 fsataque phishing clone_page http://192.168.0.5/login --host 0.0.0.0
+fsataque phishing templates
+fsataque phishing camera_sim
 fsataque wireless wifi_scan
 fsataque system logs
 fsataque system update
@@ -155,9 +179,13 @@ servidor local (`127.0.0.1`, nenhum alvo externo):
 - brute force HTTP Basic com wordlist temporária (caminho completo);
 - regressão: `--port` não pode sequestrar as wordlists;
 - regressão: senha real ausente de `logs/fsataque.jsonl`;
-- `port_scan` com sockets (fallback sem nmap).
+- `port_scan` com sockets (fallback sem nmap);
+- templates do AdvPhishing descobertos, convertidos e sem `.php` servível;
+- fluxo de 3 etapas do phishing encadeia os redirecionamentos e grava a etapa
+  correta em `logs/phishing_captures.jsonl`;
+- `camera_sim` só aceita imagem válida e monta todo comando como argv.
 
-Só sai com código `0` quando **100% passam**.
+Só sai com código `0` quando **100% passam** (91 verificações no estado atual).
 
 ---
 
@@ -176,9 +204,19 @@ Só sai com código `0` quando **100% passam**.
 
 ### Módulos deliberadamente REMOVIDOS
 
-- **Bombardeio** (SMS/Call/Email Bomb, OTP Flood, WhatsApp Spam) — atinge terceiros.
-- **Amplificação** (DNS/NTP/SSDP) — abusa de servidores de terceiros.
-- **BLE spam/flood/fuzz** — incomoda dispositivos alheios.
+Estes não estão na CLI e não voltam. O motivo não é técnico — é que não existe
+enquadramento de laboratório que os torne legítimos. `fsataque help unethical`
+imprime esta seção com o texto completo, e `fsataque help <tema>` detalha um
+deles.
+
+- **Bombardeio** (SMS/Call/Email Bomb, OTP Flood, WhatsApp Spam) — atingem
+  telefones e contas de pessoas que não consentiram. Um número de celular real
+  não é alvo de teste, com ou sem `EU ACEITO`.
+- **BLE spam/flood/fuzz** — desconectam fones, teclados e relógios de quem
+  estiver por perto, ou seja, pessoas que nunca pediram para participar. O que
+  existe é `ble_scan`, que só observa.
+- **Amplificação** (DNS/NTP/SSDP) — abusa de servidores de terceiros para
+  multiplicar o tráfego contra um alvo que não autorizou nada.
 - **Wi-Fi de injeção** (deauth, evil twin, ARP spoof) — exige root/hardware;
   esta CLI nunca roda com root.
 
@@ -189,12 +227,48 @@ Só sai com código `0` quando **100% passam**.
 O `install.sh` clona [Ignitetch/AdvPhishing](https://github.com/Ignitetch/AdvPhishing)
 em `modules/phishing/AdvPhishing/`. As telas são servidas por um **servidor Python
 puro** — sem PHP, sem Apache e sem `sudo`, funcionando igual no Termux e no Linux.
-Formulários são reescritos para o endpoint de captura e os POSTs são gravados em
-`logs/phishing_captures.jsonl`.
+
+Os templates vivem em `AdvPhishing/sites/<tema>/` (não em `Webpages/`, que é
+apenas um placeholder). São 29 temas utilizáveis — `google-otp`, `paypal`,
+`whatsapp-phishing`, `Netflix`, `telegram`, `ajio`, `mobikwik` e outros.
+
+`sites/<tema>/` traz as telas em `.php` e um espelho dos assets. Na conversão:
+
+- cada `.php` de entrada vira `.html` (`index`, `pass.login`, `otp.login`);
+- os `<form>` passam a postar para o **próprio nome da página**, que é como o
+  servidor sabe em que etapa do fluxo o POST caiu;
+- CSS, JS e imagens vão junto com o nome original (inclusive o sufixo
+  `.download` do mirror — renomear quebraria todas as referências);
+- nenhum `.php` nem `.sh` é servido.
+
+Fluxos de várias etapas funcionam de ponta a ponta: após cada captura o servidor
+redireciona para a próxima tela e, na última, mostra uma confirmação. As
+capturas são gravadas em `logs/phishing_captures.jsonl` com o campo `etapa`.
+
+O único tema ignorado é `ipfinder`: o `ip.php` dele é 100% PHP (grava IP e
+user-agent) e não tem HTML estático para servir.
 
 O servidor escuta em **`127.0.0.1`** por padrão (só a sua máquina). Para uma
 vítima de lab em outra máquina: `--host 0.0.0.0` (ou use o módulo `tunnel`,
 que expõe via ngrok/cloudflared sem abrir a interface).
+
+### `camera_sim` — o que ele exige
+
+Tira uma foto da câmera do **próprio aparelho** e exige consentimento explícito
+em dupla confirmação. O sucesso só é declarado depois de validar o arquivo
+gerado (assinatura JPEG/PNG + tamanho mínimo) — a versão anterior confiava no
+exit code, e o Termux:API devolve `0` mesmo recusando a permissão, então ela
+anunciava "salvo" sem foto nenhuma.
+
+Backends tentados, em ordem de preferência:
+
+| Plataforma | Backend | Requisito |
+|---|---|---|
+| Android/Termux | `termux-camera-photo` | app Termux:API (F-Droid) **e** permissão de câmera concedida ao app |
+| Linux | `fswebcam` | `apt install fswebcam`, `/dev/video0` |
+| Linux/BSD | `ffmpeg -f v4l2` | `apt install ffmpeg` |
+| Windows | `ffmpeg -f dshow` | `ffmpeg` no PATH; os nomes das webcams são listados para escolha |
+| macOS | `imagesnap` | `brew install imagesnap` |
 
 ---
 
@@ -208,9 +282,13 @@ fsatack/
 ├── requirements-full.txt # + paramiko (SSH brute)
 ├── config.json           # threads, timeout, wordlists, dry_run
 ├── banner/ascii.txt      # banner em pontos
-├── core/                 # menu, utils, logger
+├── core/                 # menu, ajuda, utils, logger
+│   ├── ajuda.py          # texto de ajuda: resumo, flags, ressalvas, exemplos
+│   ├── menu.py           # registro de módulos, roteamento, subcomandos
+│   ├── utils.py          # config, cores, prompts, dependências
+│   └── logger.py         # JSONL de execuções
 ├── modules/              # recon, network, bruteforce, phishing...
-├── tests/smoke_test.py   # teste de todos os módulos (dry-run)
+├── tests/smoke_test.py   # teste de todos os módulos (dry-run) + regressões
 ├── wordlists/            # wordlists mínimas próprias
 └── logs/                 # JSONL de execuções
 ```

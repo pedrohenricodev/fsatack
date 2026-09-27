@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core import utils, logger
+from core import utils, logger, ajuda
 from modules import recon, network, bruteforce, phishing, wireless, bluetooth, utilsmod
 
 AVISO = """\
@@ -38,8 +38,7 @@ BOMBARDEIO_MSG = (
     "Categoria REMOVIDA por decisao de escopo:\n"
     "  SMS/Call/Email Bomb, OTP Flood e WhatsApp Spam atingem\n"
     "  terceiros fora de qualquer laboratorio controlado.\n"
-    "  Alternativa disponivel: 'phishing clone_page' contra um\n"
-    "  servidor SMTP local para testar fluxo de e-mail em lab."
+    "  Detalhes: 'fsataque help unethical'"
 )
 
 def _sistema_update(alvo, ctx):
@@ -243,19 +242,149 @@ def executar(cat, chave, alvo=None, extras=None, dry=False):
         utils.log(chave, alvo or "-", "erro: {}".format(erro))
 
 
+def _tags(mod):
+    """Tags de aviso ([VPN]/[DESTRUTIVO]) de um modulo do registro."""
+    tags = ""
+    if mod.get("vpn"):
+        tags += utils.c(" [VPN]", utils.AMARELO)
+    if mod.get("destrutivo"):
+        tags += utils.c(" [DESTRUTIVO]", utils.VERMELHO)
+    return tags
+
+
 def listar_mods(cat, dry=False):
-    """Lista os módulos de uma categoria com tags [VPN] e [DESTRutivo]."""
+    """Lista os módulos de uma categoria com resumo, tags e atalho de ajuda."""
     print(utils.c("\n  === {} ===".format(CATEGORIAS[cat]["nome"]), utils.VERDE))
     mods = CATEGORIAS[cat]["mods"]
     for i, chave in enumerate(mods, 1):
         m = mods[chave]
-        tags = ""
-        if m.get("vpn"):
-            tags += utils.c(" [VPN]", utils.AMARELO)
-        if m.get("destrutivo"):
-            tags += utils.c(" [DESTRUTIVO]", utils.VERMELHO)
-        print("   [{:2d}] {}{}{}".format(i, m["nome"], utils.c(" ({})".format(chave), utils.CIANO), tags))
+        print("   [{:2d}] {}{}{}".format(
+            i, m["nome"], utils.c(" ({})".format(chave), utils.CIANO), _tags(m)))
+        print("        " + utils.c(ajuda.resumo(chave), utils.AMARELO))
     print("    [ 0] Voltar")
+    print("    [?] Ajuda detalhada desta categoria")
+
+
+def _linha_ajuda(rotulo, texto, cor=None):
+    """Uma linha 'rotulo: texto' alinhada, para os blocos de ajuda."""
+    print("  {} {}".format(
+        utils.c("{:<18}".format(rotulo), cor or utils.CIANO),
+        utils.c(str(texto), utils.AMARELO)))
+
+
+def ajuda_categoria(cat):
+    """Ajuda de uma categoria inteira: o que ela faz e o que cada módulo faz."""
+    if cat not in CATEGORIAS:
+        print(utils.c("  Categoria desconhecida: {}".format(cat), utils.VERMELHO))
+        return
+    info = CATEGORIAS[cat]
+    print(utils.c("\n  {} — {} modulos".format(info["nome"], len(info["mods"])), utils.VERDE))
+    destrutivos = [k for k, m in info["mods"].items() if m.get("destrutivo")]
+    leitura = [k for k, m in info["mods"].items() if not m.get("destrutivo")]
+    if destrutivos:
+        print(utils.c("  Destrutivos (exigem CONFIRMO): " + ", ".join(destrutivos), utils.VERMELHO))
+    if leitura:
+        print(utils.c("  Nao destrutivos: " + ", ".join(leitura), utils.VERDE))
+    print()
+    for chave, m in info["mods"].items():
+        print("  {} {}{}".format(
+            utils.c(m["nome"], utils.VERDE),
+            utils.c("({})".format(chave), utils.CIANO), _tags(m)))
+        print("      " + ajuda.resumo(chave))
+    relacionados = ajuda.ESCOPO_POR_CATEGORIA.get(cat)
+    if relacionados:
+        print(utils.c("\n  Relacionado (fora do escopo): "
+                      + ", ".join(relacionados), utils.VERMELHO))
+        for tema in relacionados:
+            print("    " + utils.c(ajuda.FORA_DE_ESCOPO.get(tema, ""), utils.AMARELO))
+        print(utils.c("    Detalhe: fsataque help {}".format(relacionados[0]), utils.CIANO))
+    print(utils.c("\n  Detalhe de um modulo: fsataque help {} <modulo>".format(cat), utils.CIANO))
+    print(utils.c("  Testar sem executar: acrescente --dry-run", utils.CIANO))
+
+
+def ajuda_modulo(cat, chave):
+    """Ajuda completa de um modulo: resumo, flags, ressalvas e exemplo."""
+    if cat not in CATEGORIAS or chave not in CATEGORIAS[cat]["mods"]:
+        print(utils.c("  Modulo desconhecido: {} {}".format(cat, chave), utils.VERMELHO))
+        return
+    m = CATEGORIAS[cat]["mods"][chave]
+    aviso, exemplo = ajuda.detalhe(chave)
+
+    print(utils.c("\n  {}  {}".format(m["nome"], _tags(m)), utils.VERDE))
+    print(utils.c("  {}{}".format(cat, utils.c(" > " + chave, utils.CIANO)), utils.VERDE))
+    print()
+    print(utils.c("  O que faz", utils.VERDE))
+    print("    " + ajuda.resumo(chave))
+    if m.get("alvo"):
+        print("    Precisa de alvo (IP, host ou URL).")
+    if m.get("destrutivo"):
+        # camera_sim e destrutivo no sentido de "invade a privacidade", nao de
+        # "derruba servico": a frase generica seria enganosa.
+        if chave == "camera_sim":
+            print(utils.c("    DESTRUTIVO: exige 'CONFIRMO' e consentimento da pessoa "
+                          "filmada. Sem alvo: afeta o seu proprio aparelho.", utils.VERMELHO))
+        else:
+            print(utils.c("    DESTRUTIVO: exige 'CONFIRMO' e pode derrubar o servico do alvo.",
+                          utils.VERMELHO))
+    if m.get("vpn"):
+        print(utils.c("    Alerta de VPN exibido antes de rodar.", utils.AMARELO))
+
+    flags_mod = ajuda.flags(cat, chave)
+    if flags_mod:
+        print(utils.c("\n  Flags e posicionais", utils.VERDE))
+        for nome, doc in flags_mod:
+            _linha_ajuda(nome, doc)
+
+    if aviso:
+        print(utils.c("\n  Ressalva", utils.VERDE))
+        # Quebra o texto em linhas de ~72 colunas para nao quebrar o terminal.
+        for pedaco in _quebrar(aviso, 72):
+            print(utils.c("    " + pedaco, utils.AMARELO))
+
+    if exemplo:
+        print(utils.c("\n  Exemplo", utils.VERDE))
+        print("    " + utils.c(exemplo, utils.VERDE))
+
+    print(utils.c("\n  Dry-run (nao executa nada):", utils.CIANO))
+    print("    " + utils.c("fsataque {} {} <alvo> --dry-run".format(cat, chave), utils.CIANO))
+    print(utils.c("  Aviso legal vigente em: fsataque help unethical", utils.AMARELO))
+
+
+def _quebrar(texto, largura):
+    """Quebra um texto em linhas de no maximo `largura` caracteres."""
+    palavras, linhas, atual = texto.split(), [], ""
+    for p in palavras:
+        if len(atual) + len(p) + 1 > largura and atual:
+            linhas.append(atual)
+            atual = p
+        else:
+            atual = "{} {}".format(atual, p) if atual else p
+    if atual:
+        linhas.append(atual)
+    return linhas
+
+
+def ajuda_etica(topico="todos"):
+    """Explica o que fica fora do escopo e por que.
+
+   `topico` pode ser "todos"/"unethical" (panorama) ou o nome de um tema.
+    """
+    ok, topicos = ajuda.fora_de_escopo(topico)
+    if not ok:
+        print(utils.c("  Topico de escopo desconhecido: {}".format(topico), utils.VERMELHO))
+        print(utils.c("  Temas: " + ", ".join(sorted(ajuda.FORA_DE_ESCOPO)), utils.AMARELO))
+        return
+    titulo = "fora do escopo" if len(topicos) > 1 else list(topicos)[0]
+    print(utils.c("\n  O que ficou {} desta CLI".format(titulo), utils.VERDE))
+    print(utils.c("  O motivo nao e tecnico:", utils.AMARELO))
+    for chave, texto in topicos.items():
+        print(utils.c("\n  {}".format(chave), utils.VERMELHO))
+        for pedaco in _quebrar(texto, 72):
+            print("    " + utils.c(pedaco, utils.AMARELO))
+    print(utils.c("\n  Uso permitido: seus proprios dispositivos, suas redes, ou alvos", utils.VERDE))
+    print(utils.c("  com autorizacao por escrito. Uso indevido e crime", utils.VERDE))
+    print(utils.c("  (Lei 12.737/2012, art. 154-A do Codigo Penal).", utils.VERDE))
+
 
 
 def menu_categoria(cat, dry):
@@ -267,12 +396,34 @@ def menu_categoria(cat, dry):
         esc = input(utils.c("\n  Escolha: ", utils.VERDE)).strip()
         if esc in ("0", ""):
             return
+        if esc in ("?", "h", "help"):
+            ajuda_categoria(cat)
+            input(utils.c("\n  Enter para continuar...", utils.CIANO))
+            continue
         chaves = list(CATEGORIAS[cat]["mods"].keys())
         if esc.isdigit() and 1 <= int(esc) <= len(chaves):
-            executar(cat, chaves[int(esc) - 1], dry=dry)
+            escolha = chaves[int(esc) - 1]
+            if _confirmar_ajuda(cat, escolha):
+                executar(cat, escolha, dry=dry)
         else:
             print(utils.c("  Opcao invalida.", utils.VERMELHO))
         input(utils.c("\n  Enter para continuar...", utils.CIANO))
+
+
+def _confirmar_ajuda(cat, chave):
+    """Oferece a ajuda do modulo antes de executar. True = pode executar."""
+    print(utils.c("\n  {} — {}".format(CATEGORIAS[cat]["mods"][chave]["nome"], chave), utils.VERDE))
+    print("  " + ajuda.resumo(chave))
+    aviso, _ex = ajuda.detalhe(chave)
+    if aviso:
+        for pedaco in _quebrar(aviso, 72):
+            print(utils.c("  ! " + pedaco, utils.AMARELO))
+    if not utils.confirmar("  Ver ajuda completa antes de executar? (s/N)", "n"):
+        return True
+    ajuda_modulo(cat, chave)
+    resp = utils.perguntar("  Executar mesmo assim? (digite o nome do modulo para confirmar)", "")
+    return resp.strip() == chave
+
 
 
 def interativo(dry):
@@ -287,6 +438,7 @@ def interativo(dry):
         for i, chave in enumerate(ORDEM, 1):
             print("   [{}] {}".format(i, CATEGORIAS[chave]["nome"]))
         print("   [B] " + utils.c("Bombardeio (removido)", utils.VERMELHO))
+        print("   [H] " + utils.c("Ajuda: o que cada modulo faz", utils.CIANO))
         print("   [D] Alternar dry-run (agora: {})".format("ON" if dry else "OFF"))
         print("   [0] Sair")
         esc = input(utils.c("\n  Escolha: ", utils.VERDE)).strip().lower()
@@ -296,6 +448,9 @@ def interativo(dry):
         if esc == "b":
             print(utils.c("\n  " + BOMBARDEIO_MSG, utils.AMARELO))
             input(utils.c("\n  Enter para voltar...", utils.CIANO))
+            continue
+        if esc in ("h", "help", "?"):
+            _menu_ajuda()
             continue
         if esc == "d":
             dry = not dry
@@ -307,12 +462,64 @@ def interativo(dry):
             input(utils.c("\n  Enter para continuar...", utils.CIANO))
 
 
+def _menu_ajuda():
+    """Submenu de ajuda: escolha de categoria ou modulo."""
+    while True:
+        utils.limpar()
+        banner()
+        print(utils.c("\n  Ajuda — o que voce quer ver?", utils.VERDE))
+        print(utils.c("\n  Categorias:", utils.VERDE))
+        for i, chave in enumerate(ORDEM, 1):
+            print("   [{}] {}".format(i, CATEGORIAS[chave]["nome"]))
+        print("   [E] " + utils.c("O que ficou fora do escopo (e por que)", utils.AMARELO))
+        print("   [0] Voltar")
+        esc = input(utils.c("\n  Escolha: ", utils.VERDE)).strip()
+        if esc in ("0", "", "q"):
+            return
+        if esc.lower() in ("e", "escopo", "unethical"):
+            ajuda_etica()
+            input(utils.c("\n  Enter para continuar...", utils.CIANO))
+            continue
+        if esc.isdigit() and 1 <= int(esc) <= len(ORDEM):
+            _ajuda_modulos_de(ORDEM[int(esc) - 1])
+        else:
+            print(utils.c("  Opcao invalida.", utils.VERMELHO))
+        input(utils.c("\n  Enter para continuar...", utils.CIANO))
+
+
+def _ajuda_modulos_de(cat):
+    """Lista os módulos de uma categoria e mostra a ajuda do escolhido."""
+    while True:
+        utils.limpar()
+        print(utils.c("\n  {} — modulos".format(CATEGORIAS[cat]["nome"]), utils.VERDE))
+        chaves = list(CATEGORIAS[cat]["mods"].keys())
+        for i, chave in enumerate(chaves, 1):
+            m = CATEGORIAS[cat]["mods"][chave]
+            print("   [{:2d}] {}{}".format(
+                i, m["nome"], utils.c(" ({})".format(chave), utils.CIANO)))
+            print("        " + ajuda.resumo(chave))
+        print("    [0] Voltar")
+        esc = input(utils.c("\n  Modulo: ", utils.VERDE)).strip()
+        if esc in ("0", "", "q"):
+            return
+        if esc.isdigit() and 1 <= int(esc) <= len(chaves):
+            ajuda_modulo(cat, chaves[int(esc) - 1])
+            input(utils.c("\n  Enter para continuar...", utils.CIANO))
+            continue
+        print(utils.c("  Opcao invalida.", utils.VERMELHO))
+        input(utils.c("\n  Enter para continuar...", utils.CIANO))
+
+
 def print_ajuda():
     """Ajuda dos subcomandos."""
     print("""Uso:
   fsataque                          menu interativo
-  fsataque help                     esta ajuda
+  fsataque help                     visão geral das categorias
+  fsataque help <categoria>         o que a categoria faz + todos os módulos
+  fsataque help <categoria> <modulo>  detalhe: flags, ressalvas e exemplo
+  fsataque help unethical           o que ficou fora do escopo, e por quê
   fsataque <categoria> <modulo> <alvo> [posicionais...] [flags] [--dry-run]
+  fsataque <categoria> <modulo> --help    ajuda só deste módulo
 
 Categorias: recon, network, bruteforce, phishing, wireless, bluetooth, utils, system
 
@@ -322,14 +529,23 @@ Flags (funcionam em qualquer modulo):
   --host <ip>       interface do servidor de phishing (padrao 127.0.0.1)
   --dry-run         mostra o que faria, sem executar
 
+No menu interativo, digite [?] na categoria para ver a ajuda dela.
+
 Exemplos:
+  fsataque help bruteforce
+  fsataque help bruteforce http_form
   fsataque recon port_scan 192.168.0.10 1-1024
   fsataque network http_flood http://lab.local --dry-run
   fsataque bruteforce ssh 192.168.0.10 --port 2222
-  fsataque bruteforce ssh 192.168.0.10 --users wordlists/users.txt --pass wordlists/passwords.txt
-  fsataque bruteforce http_form http://lab/login username password
+  fsataque bruteforce http_form http://192.168.0.5/login username password
   fsataque phishing clone_page http://192.168.0.5/login --host 0.0.0.0
   fsataque system logs""")
+
+    print("\nCategorias:")
+    for cat in ORDEM:
+        nome = CATEGORIAS[cat]["nome"]
+        n = len(CATEGORIAS[cat]["mods"])
+        print("  {:12s} {} ({} modulos)".format(cat, nome, n))
 
     print("\nModulos por categoria:")
     for cat in ORDEM:
@@ -349,6 +565,20 @@ def main():
         interativo(dry)
         return
     if args[0] in ("-h", "--help", "help"):
+        # help unethical [tema] | help <categoria> [modulo]
+        # A categoria tem precedencia: 'ble' e alias de bluetooth, nao de ble_attack.
+        if len(args) > 1 and not (args[1] in CATEGORIAS or ALIASES.get(args[1]) in CATEGORIAS):
+            ok, _t = ajuda.fora_de_escopo(args[1])
+            if ok:
+                ajuda_etica(args[1] if len(args) > 2 else "todos")
+                return
+        if len(args) > 2:
+            cat = ALIASES.get(args[1], args[1])
+            ajuda_modulo(cat, args[2])
+            return
+        if len(args) > 1:
+            ajuda_categoria(ALIASES.get(args[1], args[1]))
+            return
         print_ajuda()
         return
     if not aceite_legal():
@@ -365,6 +595,11 @@ def main():
     if chave not in CATEGORIAS[cat]["mods"]:
         print(utils.c("Modulo desconhecido: {}".format(chave), utils.VERMELHO))
         listar_mods(cat, dry)
+        return
+    if "--help" in args or "-h" in args:
+        # fsataque <cat> <modulo> --help
+        args.remove("--help" if "--help" in args else "-h")
+        ajuda_modulo(cat, chave)
         return
     alvo = args[2] if len(args) > 2 else None
     extras = args[3:]

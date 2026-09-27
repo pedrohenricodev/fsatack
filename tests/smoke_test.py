@@ -15,6 +15,9 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -228,6 +231,165 @@ def testes_reais(registrar_fn, rodar_fn):
         shutil.rmtree(pasta_tmp, ignore_errors=True)
 
 
+def testar_templates(registrar_fn):
+    """Regressao do modulo 'templates': os templates do AdvPhishing precisam
+    aparecer na lista. Antes a busca olhava Webpages/ (vazio) em vez de sites/.
+    """
+    from modules import phishing
+
+    usaveis, ignorados = phishing._descobrir_templates()
+    registrar_fn("templates:descoberta", len(usaveis) > 0,
+                 "" if usaveis else "nenhum template encontrado em AdvPhishing/sites/")
+
+    # Todo tema listado precisa ter ao menos uma pagina de entrada utilizavel.
+    sem_pagina = [t for t, p in usaveis if not p]
+    registrar_fn("templates:todos_tem_pagina", not sem_pagina, str(sem_pagina))
+
+    # Nenhum .php deve sobrar no que vai ser servido (o servidor nao tem PHP).
+    pasta = tempfile.mkdtemp(prefix="fsatack_tpl_")
+    try:
+        passos, _copiados = phishing._copiar_template(
+            "google-otp", ["index.php", "pass.login.php", "otp.login.php"], pasta)
+        sobrando = [a for _b, _d, arqs in os.walk(pasta) for a in arqs if a.endswith(".php")]
+        registrar_fn("templates:sem_php_servido", not sobrando, str(sobrando))
+        # O fluxo precisa converter as 3 etapas e cada form carregar o seu action.
+        ok = (passos == ["index.html", "pass.login.html", "otp.login.html"]
+              and all(os.path.exists(os.path.join(pasta, p)) for p in passos))
+        registrar_fn("templates:fluxo_3_etapas", ok, str(passos))
+    finally:
+        shutil.rmtree(pasta, ignore_errors=True)
+
+
+def testar_fluxo_captura(registrar_fn):
+    """Regressao do fluxo multi-etapa: o POST tem de cair na etapa certa.
+
+    Sem o action carregando o nome da pagina, todo POST chegava como '/' e o
+    servidor achava que era sempre a primeira tela.
+    """
+    import json
+    import threading
+    import urllib.parse
+    from http.server import HTTPServer
+    from modules import phishing
+    from core import utils
+
+    usaveis, _ign = phishing._descobrir_templates()
+    catalogo = dict(usaveis)
+    # Precisa de 3 etapas para o teste validar a sequencia inteira (usuario ->
+    # senha -> OTP). Um template de 2 paginas so exercitaria um salto.
+    tema = next((t for t, p in catalogo.items() if len(p) >= 3), None)
+    if tema is None:
+        registrar_fn("captura:fluxo_etapas", False, "AdvPhishing sem template de 3 etapas")
+        return
+
+    pasta = tempfile.mkdtemp(prefix="fsatack_fluxo_")
+    log_capturas = os.path.join(utils.caminho("logs"), "phishing_captures.jsonl")
+    existed = os.path.exists(log_capturas)
+    srv = None
+    try:
+        passos, _c = phishing._copiar_template(tema, catalogo[tema], pasta)
+        if len(passos) < 3:
+            registrar_fn("captura:fluxo_etapas", False, "convertidas so {} etapas".format(len(passos)))
+            return
+        phishing._handler_state.update({"dir": pasta, "redirect": "/", "passos": passos})
+        srv = HTTPServer(("127.0.0.1", 0), phishing._Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = "http://127.0.0.1:{}".format(srv.server_address[1])
+
+        class SemRedir(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **k):
+                return None
+
+        op = urllib.request.build_opener(SemRedir)
+        atual, esperado, ok = "/" + passos[0], passos[1:], True
+        alvo = None
+        for i, alvo in enumerate(esperado, 1):
+            corpo = urllib.parse.urlencode({"campo": "etapa{}".format(i)}).encode()
+            try:
+                op.open(urllib.request.Request(base + atual, data=corpo), timeout=5)
+                got, ok = "(sem redirect)", False
+            except urllib.error.HTTPError as e:
+                got = e.headers.get("Location")
+                ok = got == "/" + alvo
+            if not ok:
+                break
+            atual = got
+        registrar_fn("captura:fluxo_etapas", ok,
+                     "" if ok else "esperava /{}, veio {}".format(alvo, got))
+
+        # Cada captura precisa registrar a etapa correta.
+        etapas = []
+        if os.path.exists(log_capturas):
+            with open(log_capturas, encoding="utf-8") as f:
+                for linha in f:
+                    try:
+                        etapas.append(json.loads(linha).get("etapa"))
+                    except Exception:
+                        pass
+        ultimas = etapas[-len(esperado):]
+        ok = ultimas == list(range(1, len(esperado) + 1))
+        registrar_fn("captura:etapa_no_log", ok, str(ultimas))
+    finally:
+        if srv is not None:
+            try:
+                srv.shutdown()
+            except Exception:
+                pass
+        shutil.rmtree(pasta, ignore_errors=True)
+        # nao deixa o teste sujar o log de capturas de credenciais
+        try:
+            if os.path.exists(log_capturas) and not existed:
+                os.unlink(log_capturas)
+            elif os.path.exists(log_capturas):
+                with open(log_capturas, encoding="utf-8") as f:
+                    linhas = f.readlines()
+                with open(log_capturas, "w", encoding="utf-8") as f:
+                    f.writelines(linhas[:-len(esperado)])
+        except Exception:
+            pass
+
+
+def testar_camera(registrar_fn):
+    """Regressao do camera_sim: sucesso so pode ser declarado com imagem valida.
+
+    A versao antiga confiava no exit code, e o Termux:API devolve 0 mesmo
+    recusando a permissao — entao o modulo dizia 'salvo' sem arquivo nenhum.
+    """
+    import tempfile
+    from modules import phishing
+
+    pasta = tempfile.mkdtemp(prefix="fsatack_cam_")
+
+    def escrever(nome, dados):
+        p = os.path.join(pasta, nome)
+        with open(p, "wb") as f:
+            f.write(dados)
+        return p
+
+    try:
+        jpeg = escrever("a.jpg", b"\xff\xd8\xff\xe0" + b"\x00" * 500)
+        texto = escrever("b.jpg", b"isto nao e uma imagem" + b"\x00" * 500)
+        vazio = escrever("c.jpg", b"")
+        ok, tipo, _n = phishing._validar_imagem(jpeg)
+        registrar_fn("camera:aceita_jpeg", ok and tipo == "JPEG", str(tipo))
+        registrar_fn("camera:rejeita_texto", not phishing._validar_imagem(texto)[0])
+        registrar_fn("camera:rejeita_vazio", not phishing._validar_imagem(vazio)[0])
+        registrar_fn("camera:rejeita_inexistente",
+                     not phishing._validar_imagem(os.path.join(pasta, "nao-existe.jpg"))[0])
+        # Invariante de seguranca: todo comando e argv (lista de strings),
+        # nunca uma string passada por shell. Nenhum elemento pode conter
+        # metacaractere de shell, que so apareceria se algo fosse interpolado.
+        comandos = [c for _i, _r, c in phishing._backends_camara()]
+        metacar = set(";|&`$><\n")
+        todos_lista = all(isinstance(c, list) and all(isinstance(a, str) for a in c)
+                          for c in comandos)
+        sem_metacar = all(not (metacar & set(a)) for c in comandos for a in c)
+        registrar_fn("camera:argv_em_lista", todos_lista)
+        registrar_fn("camera:argv_sem_metacaractere", sem_metacar)
+    finally:
+        shutil.rmtree(pasta, ignore_errors=True)
+
+
 def main():
     print("=" * 62)
     print(" FS ATAQUE — smoke test (dry-run, nenhum ataque real)")
@@ -284,6 +446,13 @@ def main():
     print("-" * 62)
     print(" testes REAIS (127.0.0.1, nenhum alvo externo)")
     testes_reais(registrar, rodar)
+
+    # 5c. regressao dos modulos corrigidos (tudo local, sem alvo externo)
+    print("-" * 62)
+    print(" regressao: templates, fluxo de captura e camera")
+    testar_templates(registrar)
+    testar_fluxo_captura(registrar)
+    testar_camera(registrar)
 
     # 6. sintaxe dos scripts bash + menu do instalador (se bash existir)
     bash = achar_bash()
